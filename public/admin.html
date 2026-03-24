@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Админ-панель</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            padding: 16px;
+        }
+        .container { max-width: 600px; margin: 0 auto; }
+        h1 { font-size: 24px; margin-bottom: 20px; text-align: center; color: #ffd966; }
+        .stats {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            background: #16213e;
+            padding: 16px;
+            border-radius: 12px;
+        }
+        .stat { flex: 1; text-align: center; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #ffd966; }
+        .stat-label { font-size: 12px; color: #aaa; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #333; }
+        th { color: #ffd966; }
+        .btn {
+            background: #ffd966;
+            color: #1a1a2e;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 0 2px;
+        }
+        .btn-danger { background: #f44336; color: white; }
+        .loading { text-align: center; padding: 20px; color: #aaa; }
+        .search {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 16px;
+            border-radius: 8px;
+            border: none;
+            background: #16213e;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>👑 Админ-панель</h1>
+        
+        <div class="stats" id="stats">
+            <div class="stat"><div class="stat-value" id="totalPlayers">—</div><div class="stat-label">Игроков</div></div>
+            <div class="stat"><div class="stat-value" id="totalBalance">—</div><div class="stat-label">Общий баланс</div></div>
+        </div>
+        
+        <input type="text" class="search" id="search" placeholder="🔍 Поиск по имени или ID..." onkeyup="filterPlayers()">
+        
+        <div style="overflow-x: auto;">
+            <table id="playersTable">
+                <thead>……
+                    <th>ID</th><th>Имя</th><th>Баланс</th><th>Действия</th>
+                </thead>
+                <tbody id="playersList"><tr><td colspan="4" class="loading">Загрузка...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+        
+        const user = tg.initDataUnsafe.user;
+        const adminId = user ? user.id : null;
+        
+        let allPlayers = [];
+        
+        async function loadStats() {
+            const res = await fetch(`/api/stats?user_id=${adminId}`);
+            const data = await res.json();
+            if (data.error) return;
+            document.getElementById('totalPlayers').innerText = data.total_players;
+            document.getElementById('totalBalance').innerText = formatMoney(data.total_balance);
+        }
+        
+        async function loadPlayers() {
+            const res = await fetch(`/api/players?user_id=${adminId}`);
+            const data = await res.json();
+            if (data.error) {
+                document.getElementById('playersList').innerHTML = '<tr><td colspan="4">Нет доступа</td></tr>';
+                return;
+            }
+            allPlayers = data.players;
+            renderPlayers(allPlayers);
+        }
+        
+        function renderPlayers(players) {
+            const tbody = document.getElementById('playersList');
+            if (!players.length) {
+                tbody.innerHTML = '<tr><td colspan="4">Нет игроков</td></tr>';
+                return;
+            }
+            tbody.innerHTML = players.map(p => `
+                <tr>
+                    <td>${p.user_id}</td>
+                    <td>${escapeHtml(p.full_name)}</td>
+                    <td>${formatMoney(p.balance)}</td>
+                    <td>
+                        <button class="btn" onclick="giveBonus(${p.user_id})">🎁</button>
+                        <button class="btn btn-danger" onclick="giveFine(${p.user_id})">⚡</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        function filterPlayers() {
+            const search = document.getElementById('search').value.toLowerCase();
+            const filtered = allPlayers.filter(p => 
+                p.full_name.toLowerCase().includes(search) || 
+                p.user_id.toString().includes(search)
+            );
+            renderPlayers(filtered);
+        }
+        
+        async function giveBonus(userId) {
+            const amount = prompt('Сумма бонуса:', '10000');
+            if (!amount) return;
+            const res = await fetch('/api/give_bonus', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({admin_id: adminId, user_id: userId, amount: parseInt(amount)})
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('✅ Бонус выдан');
+                loadPlayers();
+                loadStats();
+            } else {
+                alert('❌ Ошибка: ' + data.error);
+            }
+        }
+        
+        async function giveFine(userId) {
+            const amount = prompt('Сумма штрафа:', '5000');
+            if (!amount) return;
+            const res = await fetch('/api/give_fine', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({admin_id: adminId, user_id: userId, amount: parseInt(amount)})
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('✅ Штраф выписан');
+                loadPlayers();
+                loadStats();
+            } else {
+                alert('❌ Ошибка: ' + data.error);
+            }
+        }
+        
+        function formatMoney(amount) {
+            return amount.toLocaleString('ru-RU') + ' ₽';
+        }
+        
+        function escapeHtml(str) {
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+        
+        loadStats();
+        loadPlayers();
+    </script>
+</body>
+</html>
