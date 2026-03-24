@@ -28,7 +28,7 @@ import aiosqlite
 
 # ==================== КОНФИГУРАЦИЯ ====================
 # Токен лучше задать в переменной окружения BOT_TOKEN (не хранить в коде в продакшене).
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8451168327:AAGQffadqqBg3pZNQnjctVxH-dUgXsovTr4")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8619745303:AAHsEWaPKdPSbenRO7dzVCrDvxUIm0CzDu0")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "5775839902"))
 # Telegram username бота для генерации ссылок вида https://t.me/<bot_username>?start=...
 # Если не задан — будет использован bot.get_me().username.
@@ -40,8 +40,8 @@ ENABLE_USERNAME_CORRECTIONS = os.getenv("ENABLE_USERNAME_CORRECTIONS", "1").stri
 # Хроника: задай CHRONICLE_CHANNEL_ID=-100... (число) ИЛИ CHRONICLE_CHANNEL_USERNAME=mychannel (без @).
 # Бот должен быть администратором канала с правом публикации.
 def _load_chronicle_config() -> tuple:
-    raw_id = os.getenv("CHRONICLE_CHANNEL_ID", "").strip()
-    raw_user = os.getenv("CHRONICLE_CHANNEL_USERNAME", "").strip().lstrip("@")
+    raw_id = os.getenv("CHRONICLE_CHANNEL_ID", "-1003008379294").strip()
+    raw_user = os.getenv("CHRONICLE_CHANNEL_USERNAME", "kamensk_avtodor_prorab").strip().lstrip("@")
     cid: Optional[int] = None
     if raw_id:
         try:
@@ -57,11 +57,6 @@ def _load_chronicle_config() -> tuple:
 
 CHRONICLE_CHANNEL_ID, CHRONICLE_CHANNEL_USERNAME = _load_chronicle_config()
 _chronicle_resolved_id: Optional[int] = None
-_TRANSIENT_BET_TXN_TYPES = frozenset({
-    "roulette_bet",
-    "dice_bet",
-    "duel_bet",
-})
 
 
 def _load_subscribe_config() -> tuple:
@@ -71,8 +66,8 @@ def _load_subscribe_config() -> tuple:
     - SUBSCRIBE_CHANNEL_ID (например -1001234567890)
     - SUBSCRIBE_CHANNEL_USERNAME (например mychannel или @mychannel)
     """
-    raw_id = os.getenv("SUBSCRIBE_CHANNEL_ID", "").strip()
-    raw_user = os.getenv("SUBSCRIBE_CHANNEL_USERNAME", "").strip().lstrip("@")
+    raw_id = os.getenv("SUBSCRIBE_CHANNEL_ID", "-1003008379294").strip()
+    raw_user = os.getenv("SUBSCRIBE_CHANNEL_USERNAME", "kamensk_avtodor_prorab").strip().lstrip("@")
     cid: Optional[int] = None
     if raw_id:
         try:
@@ -2737,6 +2732,7 @@ def get_admin_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
         [InlineKeyboardButton(text="⚡ Штраф", callback_data="admin_fine")],
         [InlineKeyboardButton(text="🎁 Бонус", callback_data="admin_bonus")],
+        [InlineKeyboardButton(text="🌐 Веб-админка", web_app=WebAppInfo(url="https://prorab.bothost.texh/admin.html"))],
         [InlineKeyboardButton(text="🏦 Влить в кассу банка", callback_data="admin_bank_inject")],
         [InlineKeyboardButton(text="📈 Экономика (штрафы/налоги/комиссия)", callback_data="admin_economy")],
         [InlineKeyboardButton(text="🧾 Чеки", callback_data="admin_checks")],
@@ -7006,7 +7002,102 @@ async def referral_credit_scheduler_immediate():
 
         await asyncio.sleep(20)
 
+# ==================== ВЕБ-АДМИНКА (МИНИ-АПП) ====================
+from flask import Flask, request, jsonify
+import threading
 
+flask_app = Flask(__name__)
+
+@flask_app.route('/api/players')
+def api_players():
+    user_id = request.args.get('user_id')
+    try:
+        if int(user_id) != ADMIN_ID:
+            return jsonify({"error": "Unauthorized"}), 401
+    except:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    async def fetch():
+        async with aiosqlite.connect(DB_NAME) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT user_id, full_name, balance FROM players ORDER BY balance DESC LIMIT 100")
+            rows = await cur.fetchall()
+            return [dict(row) for row in rows]
+    
+    loop = asyncio.new_event_loop()
+    players = loop.run_until_complete(fetch())
+    return jsonify({"players": players})
+
+@flask_app.route('/api/stats')
+def api_stats():
+    user_id = request.args.get('user_id')
+    try:
+        if int(user_id) != ADMIN_ID:
+            return jsonify({"error": "Unauthorized"}), 401
+    except:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    async def fetch():
+        async with aiosqlite.connect(DB_NAME) as db:
+            cur = await db.execute("SELECT COUNT(*) FROM players")
+            total_players = (await cur.fetchone())[0]
+            cur = await db.execute("SELECT SUM(balance) FROM players")
+            total_balance = (await cur.fetchone())[0] or 0
+            return {"total_players": total_players, "total_balance": total_balance}
+    
+    loop = asyncio.new_event_loop()
+    stats = loop.run_until_complete(fetch())
+    return jsonify(stats)
+
+@flask_app.route('/api/give_bonus', methods=['POST'])
+def api_give_bonus():
+    data = request.json
+    try:
+        if int(data.get('admin_id')) != ADMIN_ID:
+            return jsonify({"error": "Unauthorized"}), 401
+    except:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    user_id = data.get('user_id')
+    amount = data.get('amount')
+    
+    async def update():
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute("UPDATE players SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+            await db.execute("INSERT INTO transactions (user_id, type, amount, description) VALUES (?, 'admin_bonus', ?, 'Бонус через веб-админку')",
+                             (user_id, amount))
+            await db.commit()
+    
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(update())
+    return jsonify({"success": True})
+
+@flask_app.route('/api/give_fine', methods=['POST'])
+def api_give_fine():
+    data = request.json
+    try:
+        if int(data.get('admin_id')) != ADMIN_ID:
+            return jsonify({"error": "Unauthorized"}), 401
+    except:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    user_id = data.get('user_id')
+    amount = data.get('amount')
+    
+    async def update():
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute("UPDATE players SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
+            await db.execute("INSERT INTO transactions (user_id, type, amount, description) VALUES (?, 'admin_fine', ?, 'Штраф через веб-админку')",
+                             (user_id, -amount))
+            await db.commit()
+    
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(update())
+    return jsonify({"success": True})
+
+def run_flask():
+    flask_app.run(host='0.0.0.0', port=8080, debug=False)
+    
 async def on_startup():  # startup
     await init_db()
     bot_info = await bot.get_me()
@@ -7015,6 +7106,7 @@ async def on_startup():  # startup
         logger.error("Установите username в @BotFather и перезапустите бота.")
     else:
         logger.info(f"✅ Username бота: @{bot_info.username}")
+    threading.Thread(target=run_flask, daemon=True).start()
     asyncio.create_task(penalty_scheduler())
     asyncio.create_task(business_notification_scheduler())
     asyncio.create_task(bank_scheduler())
