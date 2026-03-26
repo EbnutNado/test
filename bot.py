@@ -11,6 +11,11 @@ import sqlite3
 import random
 import string
 import time
+# Для веб-сервера
+import threading
+import asyncio
+import json
+from aiohttp import web
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any, Union, Tuple
 from zoneinfo import ZoneInfo
@@ -7142,6 +7147,72 @@ async def referral_credit_scheduler_immediate():
 
         await asyncio.sleep(20)
 
+# ==================== ВЕБ-СЕРВЕР ДЛЯ SWEET BONANZA ====================
+
+async def web_api_balance(request):
+    user_id = request.query.get('user_id')
+    if not user_id:
+        return web.json_response({"error": "No user_id"}, status=400)
+    try:
+        async with aiosqlite.connect(DB_NAME) as db:
+            cursor = await db.execute("SELECT balance FROM players WHERE user_id = ?", (int(user_id),))
+            row = await cursor.fetchone()
+            balance = row[0] if row else None
+    except Exception as e:
+        return web.json_response({"error": "Invalid user_id"}, status=400)
+    if balance is None:
+        return web.json_response({"error": "User not found"}, status=404)
+    return web.json_response({"balance": balance})
+
+async def web_api_save_spin(request):
+    try:
+        data = await request.json()
+    except:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    
+    user_id = data.get('user_id')
+    win = data.get('win', 0)
+    bet = data.get('bet', 0)
+    
+    if not user_id:
+        return web.json_response({"error": "No user_id"}, status=400)
+    
+    try:
+        if win > 0:
+            await update_balance(int(user_id), win, "sweet_bonanza", f"Выигрыш в Sweet Bonanza: {win}₽")
+        else:
+            async with aiosqlite.connect(DB_NAME) as db:
+                await db.execute(
+                    "INSERT INTO transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)",
+                    (int(user_id), "sweet_bonanza_bet", -bet, f"Ставка в Sweet Bonanza: {bet}₽")
+                )
+                await db.commit()
+    except Exception as e:
+        logger.error(f"Web API error: {e}")
+        return web.json_response({"error": "Database error"}, status=500)
+    
+    return web.json_response({"success": True})
+
+def run_web_server():
+    """Запускает веб-сервер в отдельном потоке"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    app = web.Application()
+    app.router.add_get('/api/balance', web_api_balance)
+    app.router.add_post('/api/save_spin', web_api_save_spin)
+    
+    # Добавляем обработку статических файлов (HTML)
+    app.router.add_static('/static', 'public')
+    
+    # Перенаправление /sweet_bonanza.html на /static/sweet_bonanza_original.html
+    async def serve_game(request):
+        return web.FileResponse('public/sweet_bonanza_original.html')
+    app.router.add_get('/sweet_bonanza.html', serve_game)
+    
+    # Запускаем сервер
+    web.run_app(app, host='0.0.0.0', port=3000)
+
 
 async def on_startup():  # startup
     await init_db()
@@ -7166,6 +7237,10 @@ async def on_shutdown():
 async def main():
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
+     # Запускаем веб-сервер в отдельном потоке
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+    logger.info("✅ Веб-сервер запущен в отдельном потоке на порту 3000")
     await dp.start_polling(bot, skip_updates=True)
 
 if __name__ == "__main__":
