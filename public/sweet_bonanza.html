@@ -6,37 +6,59 @@
     <title>Sweet Bonanza</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
         body {
-            background: linear-gradient(135deg, #1a0f2a 0%, #0f0a1a 100%);
+            background: linear-gradient(135deg, #1a2a3a 0%, #0f1a2a 100%);
             min-height: 100vh;
             font-family: 'Segoe UI', system-ui, sans-serif;
             padding: 16px;
         }
+
         .game-container {
             max-width: 700px;
             margin: 0 auto;
-            background: linear-gradient(145deg, #2a1a3a, #1a0f2a);
+            background: linear-gradient(145deg, #2a3a4a, #1a2a3a);
             border-radius: 48px;
             padding: 20px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-            border: 1px solid #ff88aa33;
+            border: 1px solid #ffaa66;
         }
+
+        /* ХЕДЕР */
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
-            background: #0a0a1a;
+            background: #0f1a2a;
             padding: 10px 20px;
             border-radius: 60px;
         }
-        .logo { font-size: 22px; font-weight: bold; background: linear-gradient(135deg, #ff88aa, #ffaa88); -webkit-background-clip: text; background-clip: text; color: transparent; }
-        .balance-box { background: #00000066; padding: 5px 16px; border-radius: 40px; }
+        .logo {
+            font-size: 22px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #ffaa66, #ff8866);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .balance-box {
+            background: #00000066;
+            padding: 5px 16px;
+            border-radius: 40px;
+        }
         .balance-box span:first-child { color: #aaa; font-size: 12px; }
-        .balance-box span:last-child { color: #ff88aa; font-size: 20px; font-weight: bold; margin-left: 8px; }
+        .balance-box span:last-child { color: #ffaa66; font-size: 20px; font-weight: bold; margin-left: 8px; }
+
+        /* ПАНЕЛЬ СТАВКИ */
         .bet-panel {
-            background: #0a0a1a;
+            background: #0f1a2a;
             border-radius: 60px;
             padding: 10px 20px;
             margin-bottom: 20px;
@@ -46,25 +68,33 @@
         }
         .bet-control { display: flex; align-items: center; gap: 16px; }
         .bet-control button {
-            background: #2a2a4a;
+            background: #2a4a5a;
             border: none;
             width: 44px;
             height: 44px;
             font-size: 28px;
             border-radius: 30px;
-            color: #ff88aa;
+            color: #ffaa66;
             cursor: pointer;
         }
         .bet-control button:active { transform: scale(0.92); }
-        .bet-control span { font-size: 28px; font-weight: bold; min-width: 100px; text-align: center; }
-        .total-win { font-size: 18px; font-weight: bold; background: #00000066; padding: 6px 16px; border-radius: 40px; }
-        .total-win span { color: #ff88aa; font-size: 22px; }
+        .bet-control span { font-size: 28px; font-weight: bold; min-width: 100px; text-align: center; color: #ffaa66; }
+        .total-win {
+            font-size: 18px;
+            font-weight: bold;
+            background: #00000066;
+            padding: 6px 16px;
+            border-radius: 40px;
+        }
+        .total-win span { color: #ffaa66; font-size: 22px; }
+
+        /* ИГРОВОЕ ПОЛЕ */
         .game-grid {
-            background: #1a1a2a;
+            background: #0f1a2a;
             border-radius: 24px;
             padding: 12px;
             margin-bottom: 20px;
-            box-shadow: inset 0 0 0 2px #ff88aa33;
+            box-shadow: inset 0 0 0 2px #ffaa66;
         }
         .grid {
             display: grid;
@@ -73,33 +103,44 @@
             aspect-ratio: 6 / 5;
         }
         .cell {
-            background: #2a2a4a;
+            background: #2a4a5a;
             border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 36px;
-            transition: all 0.1s ease-out;
+            font-size: 42px;
+            transition: all 0.1s;
             box-shadow: 0 2px 6px black;
+            cursor: pointer;
         }
-        @keyframes smoothSpin {
-            0% { transform: scale(0.95); opacity: 0.7; background: #ff88aa33; }
-            100% { transform: scale(1); opacity: 1; background: #2a2a4a; }
+        .cell.spinning {
+            animation: spinShake 0.05s infinite;
         }
-        .cell.spinning { animation: smoothSpin 0.08s infinite; }
-        .cell.win { animation: winFlash 0.25s ease-out; }
-        @keyframes winFlash {
-            0% { transform: scale(1); background: white; box-shadow: 0 0 20px white; }
-            100% { transform: scale(1); background: #2a2a4a; }
+        @keyframes spinShake {
+            0% { transform: scale(0.98); filter: brightness(0.8); }
+            100% { transform: scale(1); filter: brightness(1); }
         }
-        .cell.cascade { animation: cascadeFall 0.25s cubic-bezier(0.2, 0.9, 0.4, 1.1); }
+        .cell.win {
+            animation: winGlow 0.3s ease-out;
+            box-shadow: 0 0 20px #ffaa66;
+        }
+        @keyframes winGlow {
+            0% { transform: scale(1); background: #ffaa66; box-shadow: 0 0 0 0 #ffaa66; }
+            50% { transform: scale(1.1); background: #ffcc88; box-shadow: 0 0 30px 15px #ffaa66; }
+            100% { transform: scale(1); background: #2a4a5a; }
+        }
+        .cell.cascade {
+            animation: cascadeFall 0.2s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+        }
         @keyframes cascadeFall {
-            0% { transform: translateY(-50px) rotate(-5deg); opacity: 0; }
-            100% { transform: translateY(0) rotate(0); opacity: 1; }
+            0% { transform: translateY(-40px) scale(0.8); opacity: 0; }
+            100% { transform: translateY(0) scale(1); opacity: 1; }
         }
+
+        /* КНОПКА СПИНА */
         .spin-btn {
             width: 100%;
-            background: linear-gradient(135deg, #ff88aa, #ffaa88);
+            background: linear-gradient(135deg, #ffaa66, #ff8866);
             border: none;
             padding: 16px;
             font-size: 24px;
@@ -107,12 +148,14 @@
             border-radius: 60px;
             cursor: pointer;
             margin-bottom: 16px;
-            color: #1a0f2a;
+            color: #1a2a3a;
         }
         .spin-btn:active { transform: translateY(2px); }
         .spin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ИНФО ПАНЕЛЬ */
         .info-panel {
-            background: #0a0a1a;
+            background: #0f1a2a;
             border-radius: 40px;
             padding: 10px 16px;
             display: flex;
@@ -120,58 +163,68 @@
             font-size: 12px;
             margin-bottom: 12px;
         }
-        .info-panel span:last-child { color: #ff88aa; font-weight: bold; margin-left: 6px; }
+        .info-panel span:last-child { color: #ffaa66; font-weight: bold; margin-left: 6px; }
+
+        /* ЛОГ */
         .log-panel {
-            background: #0a0a1a;
+            background: #0f1a2a;
             border-radius: 24px;
             padding: 12px;
-            max-height: 200px;
+            max-height: 180px;
             overflow-y: auto;
-            font-size: 12px;
+            font-size: 11px;
             font-family: monospace;
         }
-        .log-entry { padding: 4px 8px; border-bottom: 1px solid #2a2a4a; color: #ddd; }
-        .log-win { color: #ffaa88; font-weight: bold; }
+        .log-entry { padding: 4px 8px; border-bottom: 1px solid #2a4a5a; color: #ccc; }
+        .log-win { color: #ffaa66; font-weight: bold; }
         .log-free { color: #88ffaa; }
-        .log-mult { color: #ffaa44; }
+        .log-mult { color: #ffaa66; }
+
+        /* АНИМАЦИИ МНОЖИТЕЛЕЙ */
         .multiplier-badge {
             position: fixed;
             left: 50%;
             top: 50%;
             transform: translate(-50%, -50%);
-            background: linear-gradient(135deg, #ffaa44, #ff8844);
-            color: #1a0f2a;
-            font-size: 48px;
+            background: linear-gradient(135deg, #ffaa66, #ff8866);
+            color: #1a2a3a;
+            font-size: 56px;
             font-weight: bold;
-            padding: 20px 30px;
-            border-radius: 60px;
+            padding: 20px 40px;
+            border-radius: 80px;
             z-index: 100;
             animation: multiplierPop 0.8s ease-out forwards;
             white-space: nowrap;
+            box-shadow: 0 0 50px rgba(255,170,102,0.8);
         }
         @keyframes multiplierPop {
-            0% { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
-            30% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+            0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; }
+            40% { transform: translate(-50%, -50%) scale(1.3); opacity: 1; }
+            70% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
             100% { transform: translate(-50%, -50%) scale(1.2); opacity: 0; visibility: hidden; }
         }
+
         .free-spins-notice {
             position: fixed;
-            left: 50%;
             top: 50%;
+            left: 50%;
             transform: translate(-50%, -50%);
-            background: linear-gradient(135deg, #ff88aa, #ffaa88);
-            color: #1a0f2a;
-            font-size: 36px;
+            background: linear-gradient(135deg, #ffaa66, #ff8866);
+            color: #1a2a3a;
+            font-size: 40px;
             font-weight: bold;
             padding: 20px 40px;
             border-radius: 60px;
             z-index: 100;
-            animation: fadeOut 2.5s forwards;
+            animation: freeSpinFade 2s forwards;
             white-space: nowrap;
+            text-align: center;
+            box-shadow: 0 0 40px rgba(255,170,102,0.8);
         }
-        @keyframes fadeOut {
+        @keyframes freeSpinFade {
             0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-            100% { opacity: 0; transform: translate(-50%, -50%) scale(1.2); visibility: hidden; }
+            80% { opacity: 1; }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(1.3); visibility: hidden; }
         }
     </style>
 </head>
@@ -200,7 +253,7 @@
 
 <script>
     // ==================== КОНФИГ ====================
-    const API_URL = "https://prorab.bothost.texh"; // ЗАМЕНИ НА СВОЙ ДОМЕН!
+    const API_URL = "https://prorab.bothost.texh";
     const SYMBOLS = ['🍎', '🍊', '🍇', '🍒', '🍉', '🍓', '🍬', '🍭'];
     const SCATTER = '🍬';
     const MULTIPLIER_SYMBOL = '🍭';
@@ -209,7 +262,6 @@
     let userId = null;
     let inTelegram = false;
     
-    // Проверяем, запущено ли в Telegram
     try {
         if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
             inTelegram = true;
@@ -217,7 +269,7 @@
             tg.expand();
             tg.ready();
         }
-    } catch(e) { console.log("Not in Telegram"); }
+    } catch(e) {}
     
     let balance = 0;
     let currentBet = 100;
@@ -226,6 +278,7 @@
     let freeSpinsRemaining = 0;
     let freeSpinsMultiplier = 1;
     let currentGrid = [];
+    let totalMultiplier = 1;
     
     const balanceSpan = document.getElementById('balance');
     const betValueSpan = document.getElementById('betValue');
@@ -236,7 +289,6 @@
     const gameGrid = document.getElementById('gameGrid');
     const logPanel = document.getElementById('logPanel');
     
-    // ==================== API (только если в Telegram) ====================
     async function apiCall(endpoint, data = null) {
         if (!inTelegram) return null;
         const url = `${API_URL}${endpoint}?user_id=${userId}`;
@@ -245,35 +297,21 @@
         try {
             const res = await fetch(url, options);
             return await res.json();
-        } catch(e) {
-            console.log("API error:", e);
-            return null;
-        }
+        } catch(e) { return null; }
     }
     
     async function loadBalance() {
-        if (!inTelegram) {
-            balance = 10000;
-            balanceSpan.innerText = balance;
-            return;
-        }
+        if (!inTelegram) { balance = 10000; balanceSpan.innerText = balance; return; }
         const data = await apiCall('/api/balance');
-        if (data && data.balance !== undefined) {
-            balance = data.balance;
-            balanceSpan.innerText = balance;
-        }
+        if (data && data.balance !== undefined) { balance = data.balance; balanceSpan.innerText = balance; }
     }
     
     async function saveSpin(winAmount, bet) {
         if (!inTelegram) return;
         await apiCall('/api/save_spin', { win: winAmount, bet: bet });
-        if (winAmount > 0) {
-            balance += winAmount;
-            balanceSpan.innerText = balance;
-        }
+        if (winAmount > 0) { balance += winAmount; balanceSpan.innerText = balance; }
     }
     
-    // ==================== ЛОГИКА ИГРЫ ====================
     function addLog(message, type = 'info') {
         const div = document.createElement('div');
         div.className = 'log-entry';
@@ -293,14 +331,14 @@
         cells.forEach(cell => cell.classList.add('spinning'));
         for(let step = 0; step < 20; step++) {
             for(let i = 0; i < cells.length; i++) cells[i].innerHTML = getRandomSymbol();
-            await new Promise(r => setTimeout(r, 45));
+            await new Promise(r => setTimeout(r, 40));
         }
         cells.forEach(cell => cell.classList.remove('spinning'));
         for(let y = 0; y < 5; y++) for(let x = 0; x < 6; x++) {
             const idx = y * 6 + x;
             cells[idx].innerHTML = currentGrid[x][y];
         }
-        await new Promise(r => setTimeout(r, 120));
+        await new Promise(r => setTimeout(r, 100));
     }
     
     function findClusters(grid) {
@@ -346,25 +384,22 @@
     
     async function animateWinningCells(clusters) {
         const cells = document.querySelectorAll('.cell');
-        for(const cluster of clusters) for(const [x, y] of cluster) {
-            const idx = y * 6 + x;
-            cells[idx].classList.add('win');
+        for(const cluster of clusters) {
+            for(const [x, y] of cluster) {
+                const idx = y * 6 + x;
+                cells[idx].classList.add('win');
+            }
         }
-        await new Promise(r => setTimeout(r, 350));
-        for(const cluster of clusters) for(const [x, y] of cluster) {
-            const idx = y * 6 + x;
-            cells[idx].classList.remove('win');
+        await new Promise(r => setTimeout(r, 400));
+        for(const cluster of clusters) {
+            for(const [x, y] of cluster) {
+                const idx = y * 6 + x;
+                cells[idx].classList.remove('win');
+            }
         }
     }
     
-    async function animateCascade() {
-        const cells = document.querySelectorAll('.cell');
-        cells.forEach(cell => cell.classList.add('cascade'));
-        await new Promise(r => setTimeout(r, 280));
-        cells.forEach(cell => cell.classList.remove('cascade'));
-    }
-    
-    async function applyCascade(clusters) {
+    async function applyCascade(clusters, isFreeSpin = false) {
         if(!clusters.length) return false;
         await animateWinningCells(clusters);
         for(const cluster of clusters) for(const [x, y] of cluster) currentGrid[x][y] = null;
@@ -378,9 +413,10 @@
         const cells = document.querySelectorAll('.cell');
         for(let y = 0; y < 5; y++) for(let x = 0; x < 6; x++) {
             const idx = y * 6 + x;
-            cells[idx].innerHTML = currentGrid[x][y];
+            cells[idx].classList.add('cascade');
+            setTimeout(() => cells[idx].classList.remove('cascade'), 200);
         }
-        await animateCascade();
+        await new Promise(r => setTimeout(r, 250));
         return true;
     }
     
@@ -401,7 +437,7 @@
     function showFreeSpinsAnimation(count) {
         const div = document.createElement('div');
         div.className = 'free-spins-notice';
-        div.innerText = `🍬 FREE SPINS! 🍬\n${count} бесплатных вращений!`;
+        div.innerText = `🍬 FREE SPINS! 🍬\n${count} вращений!`;
         document.body.appendChild(div);
         setTimeout(() => div.remove(), 2500);
     }
@@ -415,21 +451,27 @@
         }
         spinning = true;
         spinBtn.disabled = true;
+        
         const isFreeSpin = freeSpinsRemaining > 0;
+        
         if(!isFreeSpin) {
             balance -= currentBet;
             balanceSpan.innerText = balance;
             addLog(`🎰 СПИН на ${currentBet}₽`, 'info');
         } else {
-            addLog(`🎰 ФРИСПИН (осталось ${freeSpinsRemaining})`, 'free');
+            addLog(`🎰 ФРИСПИН #${10 - freeSpinsRemaining + 1} (осталось ${freeSpinsRemaining-1})`, 'free');
             freeSpinsRemaining--;
             freeSpinsSpan.innerText = freeSpinsRemaining;
         }
+        
         currentWin = 0;
         winAmountSpan.innerText = '0';
         currentGrid = Array(6).fill().map(() => Array(5).fill().map(() => getRandomSymbol()));
         await animateSpin();
+        
         let roundWin = 0;
+        let cascadeCount = 0;
+        
         while(true) {
             const clusters = findClusters(currentGrid);
             if(clusters.length === 0) break;
@@ -437,10 +479,15 @@
             roundWin += win;
             currentWin = roundWin;
             winAmountSpan.innerText = currentWin;
-            if(win > 0) addLog(`🏆 Выигрыш ${win}₽!`, 'win');
-            const cascadeResult = await applyCascade(clusters);
-            if(!cascadeResult) break;
+            addLog(`🏆 ${clusters.reduce((s,c)=>s+c.length,0)} символов! +${win}₽`, 'win');
+            await applyCascade(clusters, isFreeSpin);
+            cascadeCount++;
         }
+        
+        if(cascadeCount > 0) addLog(`✅ Каскадов: ${cascadeCount}, выигрыш: ${roundWin}₽`, 'win');
+        else if(roundWin === 0 && !isFreeSpin) addLog(`😔 Ничего не выпало.`, 'info');
+        
+        // Фриспины: только если не в фриспинах
         if(!isFreeSpin) {
             const scatters = countScatters();
             if(scatters >= 4) {
@@ -450,39 +497,49 @@
                 freeSpinsSpan.innerText = freeSpinsRemaining;
                 multiplierSpan.innerText = freeSpinsMultiplier;
                 addLog(`🍬 Выпало ${scatters} леденца! +10 фриспинов!`, 'free');
-                for(let fs = 0; fs < 10 && freeSpinsRemaining > 0; fs++) {
-                    await spin();
-                    if(freeSpinsRemaining <= 0) break;
-                }
-                freeSpinsRemaining = 0;
-                freeSpinsMultiplier = 1;
-                freeSpinsSpan.innerText = '0';
-                multiplierSpan.innerText = '1';
+                spinning = false;
+                spinBtn.disabled = false;
+                await spin();
+                return;
             }
         } else {
-            let multFound = false;
+            // Во фриспинах ищем множители
+            let multiplierFound = false;
             for(let x = 0; x < 6; x++) {
                 for(let y = 0; y < 5; y++) {
                     if(currentGrid[x][y] === MULTIPLIER_SYMBOL) {
-                        const mult = [2,3,5,8,10,15,20,25,50,100][Math.floor(Math.random()*10)];
+                        const multValues = [2,3,5,8,10,15,20,25,50,100];
+                        const mult = multValues[Math.floor(Math.random() * multValues.length)];
                         freeSpinsMultiplier *= mult;
                         multiplierSpan.innerText = freeSpinsMultiplier;
                         showMultiplierAnimation(mult);
                         addLog(`✨ Множитель ×${mult}! Суммарный ×${freeSpinsMultiplier}`, 'mult');
-                        multFound = true;
+                        multiplierFound = true;
                         break;
                     }
                 }
-                if(multFound) break;
+                if(multiplierFound) break;
+            }
+            
+            if(freeSpinsRemaining > 0) {
+                spinning = false;
+                spinBtn.disabled = false;
+                await spin();
+                return;
+            } else {
+                addLog(`🎉 Фриспины завершены! Итоговый множитель: ×${freeSpinsMultiplier}`, 'free');
+                freeSpinsMultiplier = 1;
+                multiplierSpan.innerText = '1';
             }
         }
+        
         if(currentWin > 0) {
-            addLog(`💰 Выигрыш ${currentWin}₽.`, 'win');
+            addLog(`💰 Итого выигрыш: ${currentWin}₽`, 'win');
             await saveSpin(currentWin, currentBet);
         } else if(!isFreeSpin) {
-            addLog(`😔 Ничего не выпало.`, 'info');
             await saveSpin(0, currentBet);
         }
+        
         spinning = false;
         spinBtn.disabled = false;
     }
@@ -499,12 +556,11 @@
     
     function renderInitial() {
         gameGrid.innerHTML = '';
-        currentGrid = Array(6).fill().map(() => Array(5).fill().map(() => getRandomSymbol()));
         for(let y = 0; y < 5; y++) {
             for(let x = 0; x < 6; x++) {
                 const cell = document.createElement('div');
                 cell.className = 'cell';
-                cell.innerHTML = currentGrid[x][y];
+                cell.innerHTML = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
                 gameGrid.appendChild(cell);
             }
         }
