@@ -28,7 +28,7 @@ import aiosqlite
 
 # ==================== КОНФИГУРАЦИЯ ====================
 # Токен лучше задать в переменной окружения BOT_TOKEN (не хранить в коде в продакшене).
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8451168327:AAGQffadqqBg3pZNQnjctVxH-dUgXsovTr4")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8611222074:AAHYK7C9Y25pxAoxkOC1jUb4Zo8spXoMrpU")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "5775839902"))
 # Telegram username бота для генерации ссылок вида https://t.me/<bot_username>?start=...
 # Если не задан — будет использован bot.get_me().username.
@@ -40,8 +40,8 @@ ENABLE_USERNAME_CORRECTIONS = os.getenv("ENABLE_USERNAME_CORRECTIONS", "1").stri
 # Хроника: задай CHRONICLE_CHANNEL_ID=-100... (число) ИЛИ CHRONICLE_CHANNEL_USERNAME=mychannel (без @).
 # Бот должен быть администратором канала с правом публикации.
 def _load_chronicle_config() -> tuple:
-    raw_id = os.getenv("CHRONICLE_CHANNEL_ID", "").strip()
-    raw_user = os.getenv("CHRONICLE_CHANNEL_USERNAME", "").strip().lstrip("@")
+    raw_id = os.getenv("CHRONICLE_CHANNEL_ID", "-1003008379294").strip()
+    raw_user = os.getenv("CHRONICLE_CHANNEL_USERNAME", "kamensk_avtodor_prorab").strip().lstrip("@")
     cid: Optional[int] = None
     if raw_id:
         try:
@@ -57,11 +57,6 @@ def _load_chronicle_config() -> tuple:
 
 CHRONICLE_CHANNEL_ID, CHRONICLE_CHANNEL_USERNAME = _load_chronicle_config()
 _chronicle_resolved_id: Optional[int] = None
-_TRANSIENT_BET_TXN_TYPES = frozenset({
-    "roulette_bet",
-    "dice_bet",
-    "duel_bet",
-})
 
 
 def _load_subscribe_config() -> tuple:
@@ -71,8 +66,8 @@ def _load_subscribe_config() -> tuple:
     - SUBSCRIBE_CHANNEL_ID (например -1001234567890)
     - SUBSCRIBE_CHANNEL_USERNAME (например mychannel или @mychannel)
     """
-    raw_id = os.getenv("SUBSCRIBE_CHANNEL_ID", "").strip()
-    raw_user = os.getenv("SUBSCRIBE_CHANNEL_USERNAME", "").strip().lstrip("@")
+    raw_id = os.getenv("SUBSCRIBE_CHANNEL_ID", "-1003008379294").strip()
+    raw_user = os.getenv("SUBSCRIBE_CHANNEL_USERNAME", "kamensk_avtodor_prorab").strip().lstrip("@")
     cid: Optional[int] = None
     if raw_id:
         try:
@@ -2724,6 +2719,7 @@ def get_minigames_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🎰 Рулетка", callback_data="game_roulette")],
         [InlineKeyboardButton(text="🎲 Кости (чёт / нечёт)", callback_data="game_dice")],
         [InlineKeyboardButton(text="🛣️ Укладка асфальта", callback_data="game_asphalt")],
+        [InlineKeyboardButton(text="🍬 Sweet Bonanza", web_app=WebAppInfo(url="https://test.bothost.texh/sweet_bonanza_original.html"))]
         [InlineKeyboardButton(text="⚔️ Дуэль", callback_data="game_duel")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")]
     ]
