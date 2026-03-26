@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Sweet Bonanza</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a2a3a 0%, #0f1a2a 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            padding: 16px;
+        }
+
+        .game-container {
+            max-width: 700px;
+            margin: 0 auto;
+            background: linear-gradient(145deg, #2a3a4a, #1a2a3a);
+            border-radius: 48px;
+            padding: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            border: 1px solid #ffaa66;
+        }
+
+        /* ХЕДЕР */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            background: #0f1a2a;
+            padding: 10px 20px;
+            border-radius: 60px;
+        }
+        .logo {
+            font-size: 22px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #ffaa66, #ff8866);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .balance-box {
+            background: #00000066;
+            padding: 5px 16px;
+            border-radius: 40px;
+        }
+        .balance-box span:first-child { color: #aaa; font-size: 12px; }
+        .balance-box span:last-child { color: #ffaa66; font-size: 20px; font-weight: bold; margin-left: 8px; }
+
+        /* ПАНЕЛЬ СТАВКИ */
+        .bet-panel {
+            background: #0f1a2a;
+            border-radius: 60px;
+            padding: 10px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .bet-control { display: flex; align-items: center; gap: 16px; }
+        .bet-control button {
+            background: #2a4a5a;
+            border: none;
+            width: 44px;
+            height: 44px;
+            font-size: 28px;
+            border-radius: 30px;
+            color: #ffaa66;
+            cursor: pointer;
+        }
+        .bet-control button:active { transform: scale(0.92); }
+        .bet-control span { font-size: 28px; font-weight: bold; min-width: 100px; text-align: center; color: #ffaa66; }
+        .total-win {
+            font-size: 18px;
+            font-weight: bold;
+            background: #00000066;
+            padding: 6px 16px;
+            border-radius: 40px;
+        }
+        .total-win span { color: #ffaa66; font-size: 22px; }
+
+        /* ИГРОВОЕ ПОЛЕ */
+        .game-grid {
+            background: #0f1a2a;
+            border-radius: 24px;
+            padding: 12px;
+            margin-bottom: 20px;
+            box-shadow: inset 0 0 0 2px #ffaa66;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 8px;
+            aspect-ratio: 6 / 5;
+        }
+        .cell {
+            background: #2a4a5a;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 42px;
+            transition: all 0.1s;
+            box-shadow: 0 2px 6px black;
+            cursor: pointer;
+        }
+        .cell.spinning {
+            animation: spinShake 0.05s infinite;
+        }
+        @keyframes spinShake {
+            0% { transform: scale(0.98); filter: brightness(0.8); }
+            100% { transform: scale(1); filter: brightness(1); }
+        }
+        .cell.win {
+            animation: winGlow 0.3s ease-out;
+            box-shadow: 0 0 20px #ffaa66;
+        }
+        @keyframes winGlow {
+            0% { transform: scale(1); background: #ffaa66; box-shadow: 0 0 0 0 #ffaa66; }
+            50% { transform: scale(1.1); background: #ffcc88; box-shadow: 0 0 30px 15px #ffaa66; }
+            100% { transform: scale(1); background: #2a4a5a; }
+        }
+        .cell.cascade {
+            animation: cascadeFall 0.2s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+        }
+        @keyframes cascadeFall {
+            0% { transform: translateY(-40px) scale(0.8); opacity: 0; }
+            100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        /* КНОПКА СПИНА */
+        .spin-btn {
+            width: 100%;
+            background: linear-gradient(135deg, #ffaa66, #ff8866);
+            border: none;
+            padding: 16px;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 60px;
+            cursor: pointer;
+            margin-bottom: 16px;
+            color: #1a2a3a;
+        }
+        .spin-btn:active { transform: translateY(2px); }
+        .spin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ИНФО ПАНЕЛЬ */
+        .info-panel {
+            background: #0f1a2a;
+            border-radius: 40px;
+            padding: 10px 16px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 12px;
+        }
+        .info-panel span:last-child { color: #ffaa66; font-weight: bold; margin-left: 6px; }
+
+        /* ЛОГ */
+        .log-panel {
+            background: #0f1a2a;
+            border-radius: 24px;
+            padding: 12px;
+            max-height: 180px;
+            overflow-y: auto;
+            font-size: 11px;
+            font-family: monospace;
+        }
+        .log-entry { padding: 4px 8px; border-bottom: 1px solid #2a4a5a; color: #ccc; }
+        .log-win { color: #ffaa66; font-weight: bold; }
+        .log-free { color: #88ffaa; }
+        .log-mult { color: #ffaa66; }
+
+        /* АНИМАЦИИ МНОЖИТЕЛЕЙ */
+        .multiplier-badge {
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #ffaa66, #ff8866);
+            color: #1a2a3a;
+            font-size: 56px;
+            font-weight: bold;
+            padding: 20px 40px;
+            border-radius: 80px;
+            z-index: 100;
+            animation: multiplierPop 0.8s ease-out forwards;
+            white-space: nowrap;
+            box-shadow: 0 0 50px rgba(255,170,102,0.8);
+        }
+        @keyframes multiplierPop {
+            0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; }
+            40% { transform: translate(-50%, -50%) scale(1.3); opacity: 1; }
+            70% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1.2); opacity: 0; visibility: hidden; }
+        }
+
+        .free-spins-notice {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #ffaa66, #ff8866);
+            color: #1a2a3a;
+            font-size: 40px;
+            font-weight: bold;
+            padding: 20px 40px;
+            border-radius: 60px;
+            z-index: 100;
+            animation: freeSpinFade 2s forwards;
+            white-space: nowrap;
+            text-align: center;
+            box-shadow: 0 0 40px rgba(255,170,102,0.8);
+        }
+        @keyframes freeSpinFade {
+            0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            80% { opacity: 1; }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(1.3); visibility: hidden; }
+        }
+    </style>
+</head>
+<body>
+<div class="game-container">
+    <div class="header">
+        <div class="logo">🍬 SWEET BONANZA</div>
+        <div class="balance-box"><span>💰 БАЛАНС</span><span id="balance">0</span></div>
+    </div>
+    <div class="bet-panel">
+        <div class="bet-control">
+            <button id="betDown">−</button>
+            <span id="betValue">100</span>
+            <button id="betUp">+</button>
+        </div>
+        <div class="total-win">🏆 ВЫИГРЫШ <span id="winAmount">0</span></div>
+    </div>
+    <div class="game-grid"><div class="grid" id="gameGrid"></div></div>
+    <div class="info-panel">
+        <div><span>🍬 ФРИСПИНЫ:</span><span id="freeSpins">0</span></div>
+        <div><span>✨ МНОЖИТЕЛЬ:</span><span id="globalMultiplier">1</span></div>
+    </div>
+    <button class="spin-btn" id="spinBtn">🍭 SPIN</button>
+    <div class="log-panel" id="logPanel"><div class="log-entry">📋 Журнал действий</div></div>
+</div>
+
+<script>
+    // ==================== КОНФИГ ====================
+    const API_URL = "https://test.bothost.texh";
+    const SYMBOLS = ['🍎', '🍊', '🍇', '🍒', '🍉', '🍓', '🍬', '🍭'];
+    const SCATTER = '🍬';
+    const MULTIPLIER_SYMBOL = '🍭';
+    
+    let tg = window.Telegram.WebApp;
+    let userId = null;
+    let inTelegram = false;
+    
+    try {
+        if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+            inTelegram = true;
+            userId = tg.initDataUnsafe.user.id;
+            tg.expand();
+            tg.ready();
+        }
+    } catch(e) {}
+    
+    let balance = 0;
+    let currentBet = 100;
+    let currentWin = 0;
+    let spinning = false;
+    let freeSpinsRemaining = 0;
+    let freeSpinsMultiplier = 1;
+    let currentGrid = [];
+    let totalMultiplier = 1;
+    
+    const balanceSpan = document.getElementById('balance');
+    const betValueSpan = document.getElementById('betValue');
+    const winAmountSpan = document.getElementById('winAmount');
+    const freeSpinsSpan = document.getElementById('freeSpins');
+    const multiplierSpan = document.getElementById('globalMultiplier');
+    const spinBtn = document.getElementById('spinBtn');
+    const gameGrid = document.getElementById('gameGrid');
+    const logPanel = document.getElementById('logPanel');
+    
+    async function apiCall(endpoint, data = null) {
+        if (!inTelegram) return null;
+        const url = `${API_URL}${endpoint}?user_id=${userId}`;
+        const options = { method: data ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' } };
+        if (data) options.body = JSON.stringify(data);
+        try {
+            const res = await fetch(url, options);
+            return await res.json();
+        } catch(e) { return null; }
+    }
+    
+    async function loadBalance() {
+        if (!inTelegram) { balance = 10000; balanceSpan.innerText = balance; return; }
+        const data = await apiCall('/api/balance');
+        if (data && data.balance !== undefined) { balance = data.balance; balanceSpan.innerText = balance; }
+    }
+    
+    async function saveSpin(winAmount, bet) {
+        if (!inTelegram) return;
+        await apiCall('/api/save_spin', { win: winAmount, bet: bet });
+        if (winAmount > 0) { balance += winAmount; balanceSpan.innerText = balance; }
+    }
+    
+    function addLog(message, type = 'info') {
+        const div = document.createElement('div');
+        div.className = 'log-entry';
+        if(type === 'win') div.classList.add('log-win');
+        if(type === 'free') div.classList.add('log-free');
+        if(type === 'mult') div.classList.add('log-mult');
+        div.innerHTML = `📌 ${new Date().toLocaleTimeString()} — ${message}`;
+        logPanel.appendChild(div);
+        div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        while(logPanel.children.length > 50) logPanel.removeChild(logPanel.children[0]);
+    }
+    
+    function getRandomSymbol() { return SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]; }
+    
+    async function animateSpin() {
+        const cells = document.querySelectorAll('.cell');
+        cells.forEach(cell => cell.classList.add('spinning'));
+        for(let step = 0; step < 20; step++) {
+            for(let i = 0; i < cells.length; i++) cells[i].innerHTML = getRandomSymbol();
+            await new Promise(r => setTimeout(r, 40));
+        }
+        cells.forEach(cell => cell.classList.remove('spinning'));
+        for(let y = 0; y < 5; y++) for(let x = 0; x < 6; x++) {
+            const idx = y * 6 + x;
+            cells[idx].innerHTML = currentGrid[x][y];
+        }
+        await new Promise(r => setTimeout(r, 100));
+    }
+    
+    function findClusters(grid) {
+        const visited = Array(6).fill().map(() => Array(5).fill(false));
+        const clusters = [];
+        for(let x = 0; x < 6; x++) {
+            for(let y = 0; y < 5; y++) {
+                if(visited[x][y]) continue;
+                const symbol = grid[x][y];
+                if(symbol === SCATTER) continue;
+                const queue = [[x, y]];
+                const cluster = [];
+                visited[x][y] = true;
+                while(queue.length) {
+                    const [cx, cy] = queue.shift();
+                    cluster.push([cx, cy]);
+                    const dirs = [[0,1],[1,0],[0,-1],[-1,0]];
+                    for(const [dx, dy] of dirs) {
+                        const nx = cx + dx, ny = cy + dy;
+                        if(nx >= 0 && nx < 6 && ny >= 0 && ny < 5 && !visited[nx][ny] && grid[nx][ny] === symbol) {
+                            visited[nx][ny] = true;
+                            queue.push([nx, ny]);
+                        }
+                    }
+                }
+                if(cluster.length >= 8) clusters.push(cluster);
+            }
+        }
+        return clusters;
+    }
+    
+    function calculateWin(clusters, multiplier) {
+        let win = 0;
+        for(const cluster of clusters) {
+            const count = cluster.length;
+            if(count >= 8 && count <= 10) win += currentBet * 0.5;
+            else if(count >= 11 && count <= 14) win += currentBet * 1;
+            else if(count >= 15 && count <= 19) win += currentBet * 2;
+            else if(count >= 20) win += currentBet * 5;
+        }
+        return Math.floor(win * multiplier);
+    }
+    
+    async function animateWinningCells(clusters) {
+        const cells = document.querySelectorAll('.cell');
+        for(const cluster of clusters) {
+            for(const [x, y] of cluster) {
+                const idx = y * 6 + x;
+                cells[idx].classList.add('win');
+            }
+        }
+        await new Promise(r => setTimeout(r, 400));
+        for(const cluster of clusters) {
+            for(const [x, y] of cluster) {
+                const idx = y * 6 + x;
+                cells[idx].classList.remove('win');
+            }
+        }
+    }
+    
+    async function applyCascade(clusters, isFreeSpin = false) {
+        if(!clusters.length) return false;
+        await animateWinningCells(clusters);
+        for(const cluster of clusters) for(const [x, y] of cluster) currentGrid[x][y] = null;
+        for(let x = 0; x < 6; x++) {
+            const column = [];
+            for(let y = 0; y < 5; y++) if(currentGrid[x][y] !== null) column.push(currentGrid[x][y]);
+            const missing = 5 - column.length;
+            for(let i = 0; i < missing; i++) column.unshift(getRandomSymbol());
+            for(let y = 0; y < 5; y++) currentGrid[x][y] = column[y];
+        }
+        const cells = document.querySelectorAll('.cell');
+        for(let y = 0; y < 5; y++) for(let x = 0; x < 6; x++) {
+            const idx = y * 6 + x;
+            cells[idx].classList.add('cascade');
+            setTimeout(() => cells[idx].classList.remove('cascade'), 200);
+        }
+        await new Promise(r => setTimeout(r, 250));
+        return true;
+    }
+    
+    function countScatters() {
+        let count = 0;
+        for(let x = 0; x < 6; x++) for(let y = 0; y < 5; y++) if(currentGrid[x][y] === SCATTER) count++;
+        return count;
+    }
+    
+    function showMultiplierAnimation(mult) {
+        const div = document.createElement('div');
+        div.className = 'multiplier-badge';
+        div.innerText = `×${mult}`;
+        document.body.appendChild(div);
+        setTimeout(() => div.remove(), 800);
+    }
+    
+    function showFreeSpinsAnimation(count) {
+        const div = document.createElement('div');
+        div.className = 'free-spins-notice';
+        div.innerText = `🍬 FREE SPINS! 🍬\n${count} вращений!`;
+        document.body.appendChild(div);
+        setTimeout(() => div.remove(), 2500);
+    }
+    
+    async function spin() {
+        if(spinning) return;
+        if(balance < currentBet && freeSpinsRemaining === 0) {
+            if(inTelegram) tg.showAlert('❌ Недостаточно средств!');
+            else alert('❌ Недостаточно средств!');
+            return;
+        }
+        spinning = true;
+        spinBtn.disabled = true;
+        
+        const isFreeSpin = freeSpinsRemaining > 0;
+        
+        if(!isFreeSpin) {
+            balance -= currentBet;
+            balanceSpan.innerText = balance;
+            addLog(`🎰 СПИН на ${currentBet}₽`, 'info');
+        } else {
+            addLog(`🎰 ФРИСПИН #${10 - freeSpinsRemaining + 1} (осталось ${freeSpinsRemaining-1})`, 'free');
+            freeSpinsRemaining--;
+            freeSpinsSpan.innerText = freeSpinsRemaining;
+        }
+        
+        currentWin = 0;
+        winAmountSpan.innerText = '0';
+        currentGrid = Array(6).fill().map(() => Array(5).fill().map(() => getRandomSymbol()));
+        await animateSpin();
+        
+        let roundWin = 0;
+        let cascadeCount = 0;
+        
+        while(true) {
+            const clusters = findClusters(currentGrid);
+            if(clusters.length === 0) break;
+            const win = calculateWin(clusters, isFreeSpin ? freeSpinsMultiplier : 1);
+            roundWin += win;
+            currentWin = roundWin;
+            winAmountSpan.innerText = currentWin;
+            addLog(`🏆 ${clusters.reduce((s,c)=>s+c.length,0)} символов! +${win}₽`, 'win');
+            await applyCascade(clusters, isFreeSpin);
+            cascadeCount++;
+        }
+        
+        if(cascadeCount > 0) addLog(`✅ Каскадов: ${cascadeCount}, выигрыш: ${roundWin}₽`, 'win');
+        else if(roundWin === 0 && !isFreeSpin) addLog(`😔 Ничего не выпало.`, 'info');
+        
+        // Фриспины: только если не в фриспинах
+        if(!isFreeSpin) {
+            const scatters = countScatters();
+            if(scatters >= 4) {
+                showFreeSpinsAnimation(10);
+                freeSpinsRemaining = 10;
+                freeSpinsMultiplier = 1;
+                freeSpinsSpan.innerText = freeSpinsRemaining;
+                multiplierSpan.innerText = freeSpinsMultiplier;
+                addLog(`🍬 Выпало ${scatters} леденца! +10 фриспинов!`, 'free');
+                spinning = false;
+                spinBtn.disabled = false;
+                await spin();
+                return;
+            }
+        } else {
+            // Во фриспинах ищем множители
+            let multiplierFound = false;
+            for(let x = 0; x < 6; x++) {
+                for(let y = 0; y < 5; y++) {
+                    if(currentGrid[x][y] === MULTIPLIER_SYMBOL) {
+                        const multValues = [2,3,5,8,10,15,20,25,50,100];
+                        const mult = multValues[Math.floor(Math.random() * multValues.length)];
+                        freeSpinsMultiplier *= mult;
+                        multiplierSpan.innerText = freeSpinsMultiplier;
+                        showMultiplierAnimation(mult);
+                        addLog(`✨ Множитель ×${mult}! Суммарный ×${freeSpinsMultiplier}`, 'mult');
+                        multiplierFound = true;
+                        break;
+                    }
+                }
+                if(multiplierFound) break;
+            }
+            
+            if(freeSpinsRemaining > 0) {
+                spinning = false;
+                spinBtn.disabled = false;
+                await spin();
+                return;
+            } else {
+                addLog(`🎉 Фриспины завершены! Итоговый множитель: ×${freeSpinsMultiplier}`, 'free');
+                freeSpinsMultiplier = 1;
+                multiplierSpan.innerText = '1';
+            }
+        }
+        
+        if(currentWin > 0) {
+            addLog(`💰 Итого выигрыш: ${currentWin}₽`, 'win');
+            await saveSpin(currentWin, currentBet);
+        } else if(!isFreeSpin) {
+            await saveSpin(0, currentBet);
+        }
+        
+        spinning = false;
+        spinBtn.disabled = false;
+    }
+    
+    function changeBet(delta) {
+        if(spinning) return;
+        let newBet = currentBet + delta;
+        if(newBet < 100) newBet = 100;
+        if(newBet > 5000) newBet = 5000;
+        currentBet = newBet;
+        betValueSpan.innerText = currentBet;
+        addLog(`💰 Ставка изменена на ${currentBet}₽`, 'info');
+    }
+    
+    function renderInitial() {
+        gameGrid.innerHTML = '';
+        for(let y = 0; y < 5; y++) {
+            for(let x = 0; x < 6; x++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.innerHTML = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
+                gameGrid.appendChild(cell);
+            }
+        }
+    }
+    
+    async function init() {
+        await loadBalance();
+        renderInitial();
+        addLog('🍬 Sweet Bonanza загружен. Удачи!', 'info');
+        spinBtn.onclick = spin;
+        document.getElementById('betDown').onclick = () => changeBet(-100);
+        document.getElementById('betUp').onclick = () => changeBet(100);
+    }
+    
+    init();
+</script>
+</body>
+</html>
