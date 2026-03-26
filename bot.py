@@ -11,6 +11,7 @@ import sqlite3
 import random
 import string
 import time
+from aiohttp import web
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any, Union, Tuple
 from zoneinfo import ZoneInfo
@@ -28,7 +29,7 @@ import aiosqlite
 
 # ==================== КОНФИГУРАЦИЯ ====================
 # Токен лучше задать в переменной окружения BOT_TOKEN (не хранить в коде в продакшене).
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8451168327:AAGQffadqqBg3pZNQnjctVxH-dUgXsovTr4")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8619745303:AAHsEWaPKdPSbenRO7dzVCrDvxUIm0CzDu0")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "5775839902"))
 # Telegram username бота для генерации ссылок вида https://t.me/<bot_username>?start=...
 # Если не задан — будет использован bot.get_me().username.
@@ -40,8 +41,8 @@ ENABLE_USERNAME_CORRECTIONS = os.getenv("ENABLE_USERNAME_CORRECTIONS", "1").stri
 # Хроника: задай CHRONICLE_CHANNEL_ID=-100... (число) ИЛИ CHRONICLE_CHANNEL_USERNAME=mychannel (без @).
 # Бот должен быть администратором канала с правом публикации.
 def _load_chronicle_config() -> tuple:
-    raw_id = os.getenv("CHRONICLE_CHANNEL_ID", "").strip()
-    raw_user = os.getenv("CHRONICLE_CHANNEL_USERNAME", "").strip().lstrip("@")
+    raw_id = os.getenv("CHRONICLE_CHANNEL_ID", "-1003008379294").strip()
+    raw_user = os.getenv("CHRONICLE_CHANNEL_USERNAME", "kamensk_avtodor_prorab").strip().lstrip("@")
     cid: Optional[int] = None
     if raw_id:
         try:
@@ -57,11 +58,6 @@ def _load_chronicle_config() -> tuple:
 
 CHRONICLE_CHANNEL_ID, CHRONICLE_CHANNEL_USERNAME = _load_chronicle_config()
 _chronicle_resolved_id: Optional[int] = None
-_TRANSIENT_BET_TXN_TYPES = frozenset({
-    "roulette_bet",
-    "dice_bet",
-    "duel_bet",
-})
 
 
 def _load_subscribe_config() -> tuple:
@@ -71,8 +67,8 @@ def _load_subscribe_config() -> tuple:
     - SUBSCRIBE_CHANNEL_ID (например -1001234567890)
     - SUBSCRIBE_CHANNEL_USERNAME (например mychannel или @mychannel)
     """
-    raw_id = os.getenv("SUBSCRIBE_CHANNEL_ID", "").strip()
-    raw_user = os.getenv("SUBSCRIBE_CHANNEL_USERNAME", "").strip().lstrip("@")
+    raw_id = os.getenv("SUBSCRIBE_CHANNEL_ID", "-1003008379294").strip()
+    raw_user = os.getenv("SUBSCRIBE_CHANNEL_USERNAME", "kamensk_avtodor_prorab").strip().lstrip("@")
     cid: Optional[int] = None
     if raw_id:
         try:
@@ -2724,6 +2720,7 @@ def get_minigames_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🎰 Рулетка", callback_data="game_roulette")],
         [InlineKeyboardButton(text="🎲 Кости (чёт / нечёт)", callback_data="game_dice")],
         [InlineKeyboardButton(text="🛣️ Укладка асфальта", callback_data="game_asphalt")],
+        [InlineKeyboardButton(text="🍬 Sweet Bonanza", web_app=WebAppInfo(url="https://test.bothost.texh/sweet_bonanza_original.html"))],
         [InlineKeyboardButton(text="⚔️ Дуэль", callback_data="game_duel")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")]
     ]
@@ -7146,6 +7143,65 @@ async def referral_credit_scheduler_immediate():
 
         await asyncio.sleep(20)
 
+# ==================== ВЕБ-СЕРВЕР ДЛЯ МИНИ-АППА SWEET BONANZA ====================
+from aiohttp import web
+import json
+
+async def api_balance(request):
+    user_id = request.query.get('user_id')
+    if not user_id:
+        return web.json_response({"error": "No user_id"}, status=400)
+    try:
+        user = await get_user(int(user_id))
+    except Exception:
+        return web.json_response({"error": "Invalid user_id"}, status=400)
+    if not user:
+        return web.json_response({"error": "User not found"}, status=404)
+    return web.json_response({"balance": user['balance']})
+
+async def api_save_spin(request):
+    try:
+        data = await request.json()
+    except:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    
+    user_id = data.get('user_id')
+    win = data.get('win', 0)
+    bet = data.get('bet', 0)
+    
+    if not user_id:
+        return web.json_response({"error": "No user_id"}, status=400)
+    
+    try:
+        user = await get_user(int(user_id))
+        if not user:
+            return web.json_response({"error": "User not found"}, status=404)
+    except Exception:
+        return web.json_response({"error": "Invalid user_id"}, status=400)
+    
+    if win > 0:
+        await update_balance(int(user_id), win, "sweet_bonanza", f"Выигрыш в Sweet Bonanza: {win}₽")
+    else:
+        # Ставка уже списана на клиенте, просто записываем транзакцию
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute(
+                "INSERT INTO transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)",
+                (int(user_id), "sweet_bonanza_bet", -bet, f"Ставка в Sweet Bonanza: {bet}₽")
+            )
+            await db.commit()
+    
+    return web.json_response({"success": True})
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/api/balance', api_balance)
+    app.router.add_post('/api/save_spin', api_save_spin)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 3000)
+    await site.start()
+    logger.info("✅ Веб-сервер запущен на порту 3000")
+
 
 async def on_startup():  # startup
     await init_db()
@@ -7170,6 +7226,7 @@ async def on_shutdown():
 async def main():
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
+    asyncio.create_task(start_web_server())
     await dp.start_polling(bot, skip_updates=True)
 
 if __name__ == "__main__":
