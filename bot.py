@@ -7586,7 +7586,8 @@ async def admin_mines_override_user(callback: CallbackQuery, state: FSMContext):
         await callback.answer("⛔", show_alert=True)
         return
     
-    user_id = int(callback.data.split("_")[5])
+    # Исправляем: берём последний элемент после разделителя "_"
+    user_id = int(callback.data.split("_")[-1])
     await state.update_data(target_user=user_id)
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
