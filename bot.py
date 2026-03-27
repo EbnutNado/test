@@ -7541,7 +7541,7 @@ async def show_full_field(message: Message, user_id: int, game: dict, is_win: bo
     )
 
 async def show_final_board(message: Message, user_id: int, game: dict, current_mines: list, is_win: bool = False, win_amount: int = 0):
-    """Показывает финальное поле: открытые ячейки 💎, неоткрытые — 💣 (мины)"""
+    """Показывает финальное поле: реальные мины и открытые ячейки"""
     
     mines_count = game["mines_count"]
     opened = game["opened"]
@@ -7556,11 +7556,14 @@ async def show_final_board(message: Message, user_id: int, game: dict, current_m
             kb_buttons.append([])
         
         if i in opened:
-            # Открытая ячейка — всегда безопасная (иначе бы игра закончилась)
+            # Открытая ячейка — показываем 💎
             kb_buttons[row].append(InlineKeyboardButton(text="💎", callback_data="mines_noop"))
-        else:
-            # Неоткрытая ячейка — мина (все мины здесь)
+        elif i in current_mines:
+            # Неоткрытая ячейка с миной — показываем 💣
             kb_buttons[row].append(InlineKeyboardButton(text="💣", callback_data="mines_noop"))
+        else:
+            # Неоткрытая безопасная ячейка — показываем ⬜
+            kb_buttons[row].append(InlineKeyboardButton(text="⬜", callback_data="mines_noop"))
     
     kb_buttons.append([
         InlineKeyboardButton(text="🔄 Играть снова", callback_data="game_mines"),
@@ -7593,7 +7596,8 @@ async def show_final_board(message: Message, user_id: int, game: dict, current_m
     
     result_text += f"└{'─' * 35}┘\n\n"
     result_text += f"*💎 — открытые безопасные ячейки*\n"
-    result_text += f"*💣 — неоткрытые ячейки (все мины здесь)*"
+    result_text += f"*💣 — мины (неоткрытые)*\n"
+    result_text += f"*⬜ — безопасные ячейки (неоткрытые)*"
     
     await message.edit_text(
         result_text,
