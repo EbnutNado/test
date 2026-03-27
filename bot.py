@@ -7219,7 +7219,7 @@ def generate_mines_field(mines_count: int, exclude_cell: int = None, user_id: in
 
 def get_mines_multiplier(mines_count: int, opened_count: int) -> float:
     """Возвращает текущий множитель по количеству открытых ячеек"""
-    multipliers = ECONOMY_SETTINGS["mines_multipliers"].get(mines_count, [])
+    multipliers = MINES_SETTINGS["mines_multipliers"].get(mines_count, [])
     if opened_count >= len(multipliers):
         return multipliers[-1] if multipliers else 1.0
     return multipliers[opened_count]
@@ -7316,7 +7316,7 @@ async def mines_choose_count(callback: CallbackQuery, state: FSMContext):
     await state.set_state(MinesStates.waiting_bet)
     
     user = await get_user(callback.from_user.id)
-    max_bet = min(ECONOMY_SETTINGS["mines_max_bet"], user['balance'])
+    max_bet = min(MINES_SETTINGS["mines_max_bet"], user['balance'])
     
     await callback.message.edit_text(
         f"💣 *МИНЫ — {mines_count} мин*\n\n"
@@ -7346,8 +7346,8 @@ async def mines_place_bet(message: Message, state: FSMContext):
         await message.answer("❌ Введи число!")
         return
     
-    min_bet = ECONOMY_SETTINGS["mines_min_bet"]
-    max_bet = ECONOMY_SETTINGS["mines_max_bet"]
+    min_bet = MINES_SETTINGS["mines_min_bet"]
+    max_bet = MINNES_SETTINGS["mines_max_bet"]
     
     if bet < min_bet or bet > max_bet:
         await message.answer(f"❌ Ставка от {format_money(min_bet)} до {format_money(max_bet)}")
