@@ -7306,7 +7306,7 @@ async def show_mines_field(message: Message, user_id: int, first_time: bool = Fa
         multiplier = 1.0
         current_win = 0
     
-    # Создаём клавиатуру 5x5
+    # Создаём клавиатуру 5x5 (показываем только открытые ячейки)
     kb_buttons = []
     for i in range(25):
         row = i // 5
@@ -7330,13 +7330,22 @@ async def show_mines_field(message: Message, user_id: int, first_time: bool = Fa
             InlineKeyboardButton(text="❌ Выход", callback_data="mines_exit")
         ])
     
-    # Прогресс-бар (только если есть открытые ячейки)
+    # Прогресс-бар
+    safe_cells_total = 25 - mines_count
     if len(opened) > 0:
-        progress = int(len(opened) / 25 * 20)
+        progress = int(len(opened) / safe_cells_total * 20) if safe_cells_total > 0 else 0
         progress_bar = "█" * progress + "░" * (20 - progress)
         progress_text = f"\n┌{'─' * 20}┐\n│ {progress_bar} │\n└{'─' * 20}┘\n\n"
     else:
         progress_text = "\n"
+    
+    # Отображение статуса подкрутки
+    status_text = ""
+    if game["dynamic_mode"] and game["win_chance"] is not None:
+        if game["win_chance"] >= 0.7:
+            status_text = "✨ *Удача на твоей стороне!* ✨\n"
+        elif game["win_chance"] <= 0.3:
+            status_text = "💀 *Сегодня не твой день...* 💀\n"
     
     text = (
         f"💣 *МИНЫ — {mines_count} мин*\n\n"
@@ -7346,17 +7355,17 @@ async def show_mines_field(message: Message, user_id: int, first_time: bool = Fa
     
     if len(opened) > 0:
         text += (
-            f"🔓 Открыто: {len(opened)}/25 ячеек\n"
+            f"🔓 Открыто: {len(opened)}/{safe_cells_total} ячеек\n"
             f"📈 Множитель: x{multiplier:.2f}\n"
             f"💎 Выигрыш при выходе: {format_money(current_win)}\n\n"
         )
     else:
         text += (
-            f"🔓 Открыто: 0/25 ячеек\n"
+            f"🔓 Открыто: 0/{safe_cells_total} ячеек\n"
             f"📈 Множитель: x1.00\n\n"
         )
     
-    text += f"*Нажми на ⬛, чтобы открыть ячейку.*\n"
+    text += f"{status_text}*Нажми на ⬛, чтобы открыть ячейку.*\n"
     text += f"Наступишь на 💣 — проиграешь!"
     
     if first_time:
@@ -7450,28 +7459,35 @@ async def mines_place_bet(message: Message, state: FSMContext):
     # Списываем ставку
     await update_balance(user_id, -bet, "mines_bet", f"Ставка в Минах: {bet}₽")
     
-    # Генерируем поле с минами (НЕТ автоматического открытия!)
-    mines = generate_mines_field_with_override(mines_count, user_id)
+    # Получаем настройки подкрутки
+    override = await get_mines_override(user_id)
+    win_chance = override["win_chance"] if override["active"] else None
+    
+    # Генерируем начальные позиции мин (случайно, но НЕ в первой ячейке — её выберет игрок)
+    all_cells = list(range(25))
+    mines = random.sample(all_cells, mines_count)
     
     game_data = {
         "bet": bet,
         "mines_count": mines_count,
         "mines": mines,
-        "opened": [],  # Пустой список — игрок сам выбирает первую ячейку
+        "opened": [],  # игрок сам выбирает первую ячейку
         "status": "playing",
-        "message_id": None
+        "message_id": None,
+        "win_chance": win_chance,  # процент подкрутки
+        "dynamic_mode": override["active"]  # включена ли подкрутка
     }
     
     active_mines_games[user_id] = game_data
     
-    # Отправляем игровое поле (все ячейки закрыты)
+    # Отправляем игровое поле
     msg = await show_mines_field(message, user_id, first_time=True)
     game_data["message_id"] = msg.message_id
     
     await state.set_state(MinesStates.playing)
 
 async def show_full_field(message: Message, user_id: int, game: dict, is_win: bool = False, win_amount: int = 0, cashout: bool = False):
-    """Показывает полное поле с открытыми минами и безопасными ячейками (красивая версия)"""
+    """Показывает полное поле с открытыми минами и безопасными ячейками"""
     
     mines_count = game["mines_count"]
     mines = game["mines"]
@@ -7487,54 +7503,46 @@ async def show_full_field(message: Message, user_id: int, game: dict, is_win: bo
             kb_buttons.append([])
         
         if i in mines:
-            # Мина
             kb_buttons[row].append(InlineKeyboardButton(text="💣", callback_data="mines_noop"))
         elif i in opened:
-            # Открытая безопасная ячейка
             kb_buttons[row].append(InlineKeyboardButton(text="💎", callback_data="mines_noop"))
         else:
-            # Неоткрытая безопасная ячейка
             kb_buttons[row].append(InlineKeyboardButton(text="⬜", callback_data="mines_noop"))
     
-    # Кнопки действий
     kb_buttons.append([
         InlineKeyboardButton(text="🔄 Играть снова", callback_data="game_mines"),
         InlineKeyboardButton(text="🔙 В меню", callback_data="back_to_games")
     ])
     
-    # Формируем текст результата
     multiplier = get_mines_multiplier(mines_count, len(opened)) if len(opened) > 0 else 1.0
+    safe_cells_total = 25 - mines_count
     
-    # Выбираем эмодзи и заголовок
     if cashout:
         emoji = "💰"
         title = "ВЫ ЗАБРАЛИ ВЫИГРЫШ!"
-        result_text = f"{emoji} *{title}*\n\n"
     elif is_win:
         emoji = "🎉"
-        title = "ПОБЕДА! ВСЕ ЯЧЕЙКИ ОТКРЫТЫ!"
-        result_text = f"{emoji} *{title}*\n\n"
+        title = "ПОБЕДА! ВСЕ БЕЗОПАСНЫЕ ЯЧЕЙКИ ОТКРЫТЫ!"
     else:
         emoji = "💣"
         title = "ВЫ ПРОИГРАЛИ!"
-        result_text = f"{emoji} *{title}*\n\n"
     
-    # Детали игры
+    result_text = f"{emoji} *{title}*\n\n"
     result_text += (
-        f"┌{'─' * 30}┐\n"
-        f"│ 💰 Ставка: {format_money(bet):>20} │\n"
-        f"│ 💣 Мин на поле: {mines_count:>19} │\n"
-        f"│ 🔓 Открыто ячеек: {len(opened):>16} │\n"
-        f"│ 📈 Множитель: x{multiplier:.2f}{' ' * (18 - len(f'{multiplier:.2f}'))} │\n"
+        f"┌{'─' * 35}┐\n"
+        f"│ 💰 Ставка: {format_money(bet):>26} │\n"
+        f"│ 💣 Мин на поле: {mines_count:>25} │\n"
+        f"│ 🔓 Открыто ячеек: {len(opened)}/{safe_cells_total:>16} │\n"
+        f"│ 📈 Множитель: x{multiplier:.2f}{' ' * (23 - len(f'{multiplier:.2f}'))} │\n"
     )
     
     if win_amount > 0:
-        result_text += f"│ 💎 Выигрыш: {format_money(win_amount):>21} │\n"
+        result_text += f"│ 💎 Выигрыш: {format_money(win_amount):>27} │\n"
     else:
-        result_text += f"│ 💸 Потеряно: {format_money(bet):>21} │\n"
+        result_text += f"│ 💸 Потеряно: {format_money(bet):>27} │\n"
     
-    result_text += f"└{'─' * 30}┘\n\n"
-    result_text += f"*💣 — мины*  |  *💎 — безопасные ячейки*  |  *⬜ — неоткрытые*"
+    result_text += f"└{'─' * 35}┘\n\n"
+    result_text += f"*💣 — мины*  |  *💎 — безопасные*  |  *⬜ — неоткрытые*"
     
     await message.edit_text(
         result_text,
@@ -7557,9 +7565,45 @@ async def mines_open_cell(callback: CallbackQuery):
         await callback.answer("❌ Эта ячейка уже открыта", show_alert=True)
         return
     
-    # Проверяем, не мина ли
-    if cell in game["mines"]:
-        # Проигрыш
+    # Проверяем, есть ли мина в выбранной ячейке
+    is_mine = cell in game["mines"]
+    
+    # ДИНАМИЧЕСКАЯ ПОДКРУТКА
+    if game["dynamic_mode"] and game["win_chance"] is not None:
+        win_chance = game["win_chance"]
+        
+        # Генерируем случайное число от 0 до 1
+        roll = random.random()
+        
+        if is_mine:
+            # Игрок выбрал ячейку с миной
+            if roll < win_chance:
+                # Подкрутка сработала — мина уходит!
+                # Находим безопасную ячейку для перемещения мины
+                available_cells = [i for i in range(25) if i not in game["opened"] and i != cell]
+                if available_cells:
+                    # Убираем мину из выбранной ячейки
+                    game["mines"].remove(cell)
+                    # Перемещаем мину в другую безопасную ячейку
+                    new_mine = random.choice(available_cells)
+                    game["mines"].append(new_mine)
+                    is_mine = False  # Теперь эта ячейка безопасна
+                    await callback.answer("✨ Мина ушла! (подкрутка)", show_alert=False)
+                else:
+                    await callback.answer("💥 Мина! (нет места для переноса)", show_alert=True)
+            else:
+                await callback.answer("💥 Мина! (подкрутка не сработала)", show_alert=True)
+        else:
+            # Игрок выбрал безопасную ячейку
+            if roll > win_chance and len(game["mines"]) < 25 - len(game["opened"]):
+                # Открутка сработала — добавляем мину!
+                available_cells = [i for i in range(25) if i not in game["opened"] and i != cell and i not in game["mines"]]
+                if available_cells:
+                    game["mines"].append(random.choice(available_cells))
+                    await callback.answer("⚠️ Появилась новая мина! (открутка)", show_alert=False)
+    
+    # Если в ячейке мина после всех подкруток — проигрыш
+    if is_mine:
         game["status"] = "lost"
         await callback.answer("💥 БАХ! Ты наступил на мину!", show_alert=True)
         
@@ -7569,22 +7613,22 @@ async def mines_open_cell(callback: CallbackQuery):
         await callback.answer()
         return
     
-    # Безопасная ячейка
+    # Безопасная ячейка — открываем
     game["opened"].append(cell)
     multiplier = get_mines_multiplier(game["mines_count"], len(game["opened"]))
     
-    # Если открыты все ячейки — победа
-    if len(game["opened"]) == 25:
+    # Проверяем победу (открыты все ячейки, кроме мин)
+    safe_cells_total = 25 - game["mines_count"]
+    if len(game["opened"]) == safe_cells_total:
         win = int(game["bet"] * multiplier)
         await update_balance(user_id, win, "mines_win", f"Выигрыш в Минах: {win}₽")
         
-        # Показываем всё поле с победой
         await show_full_field(callback.message, user_id, game, is_win=True, win_amount=win)
         del active_mines_games[user_id]
         await callback.answer()
         return
     
-    # Обновляем поле (продолжаем игру)
+    # Обновляем поле
     await show_mines_field(callback.message, user_id, first_time=False)
     await callback.answer(f"✅ Безопасно! Множитель x{multiplier:.2f}", show_alert=False)
 
