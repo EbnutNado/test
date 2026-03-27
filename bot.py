@@ -247,9 +247,10 @@ ECONOMY_SETTINGS = {
     "daily_top_reward_2": 20000,
     "daily_top_reward_3": 12000,
     "inventory_base_slots": 20,
-    ECONOMY_SETTINGS = {
-    # ... существующие настройки ...
-    
+}
+
+# ==================== НАСТРОЙКИ ИГРЫ МИНЫ ====================
+MINES_SETTINGS = {
     "mines_min_bet": 100,
     "mines_max_bet": 10000,
     "mines_field_size": 25,
