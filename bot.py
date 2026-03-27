@@ -7204,10 +7204,7 @@ async def disable_mines_override(user_id: int) -> None:
 
 # ==================== ГЕНЕРАЦИЯ ПОЛЯ С ПОДКРУТКОЙ ====================
 def generate_mines_field_with_override(mines_count: int, opened_cells: list, user_id: int) -> list:
-    """Генерирует поле с учётом подкрутки.
-    При win_chance > 0.5: мины НЕ попадают в открытые ячейки (игрок выигрывает)
-    При win_chance < 0.5: мины попадают в открытые ячейки (игрок проигрывает)
-    """
+    """Генерирует поле с учётом подкрутки."""
     import sqlite3
     
     all_cells = list(range(25))
@@ -7238,38 +7235,62 @@ def generate_mines_field_with_override(mines_count: int, opened_cells: list, use
     if not active or win_chance == 0.5:
         return random.sample(all_cells, mines_count)
     
+    # ПОДКРУТКА 100% — все мины только в НЕОТКРЫТЫХ ячейках
+    if win_chance >= 0.99:
+        if len(closed) >= mines_count:
+            return random.sample(closed, mines_count)
+        else:
+            # Если не хватает неоткрытых — добираем из открытых (но это баг, быть не должно)
+            mines = random.sample(closed, len(closed))
+            needed = mines_count - len(mines)
+            if needed > 0 and opened:
+                mines.extend(random.sample(opened, min(needed, len(opened))))
+            return mines
+    
+    # ОТКРУТКА 0% — все мины только в ОТКРЫТЫХ ячейках
+    if win_chance <= 0.01:
+        if len(opened) >= mines_count:
+            return random.sample(opened, mines_count)
+        else:
+            # Если не хватает открытых — добираем из неоткрытых
+            mines = random.sample(opened, len(opened))
+            needed = mines_count - len(mines)
+            if needed > 0 and closed:
+                mines.extend(random.sample(closed, min(needed, len(closed))))
+            return mines
+    
+    # Промежуточные значения
     if win_chance > 0.5:
-        # ПОДКРУТКА: мины должны быть в НЕОТКРЫТЫХ ячейках (игрок выигрывает)
-        # Чем выше win_chance, тем больше мин в неоткрытых
-        mines_in_closed = int(mines_count * win_chance)
+        # Подкрутка: мины преимущественно в неоткрытых
+        target_in_closed = int(mines_count * win_chance)
+        mines_in_closed = min(target_in_closed, len(closed))
         mines_in_opened = mines_count - mines_in_closed
         
         mines = []
         if mines_in_closed > 0 and closed:
-            mines.extend(random.sample(closed, min(mines_in_closed, len(closed))))
+            mines.extend(random.sample(closed, mines_in_closed))
         if mines_in_opened > 0 and opened:
             available = [c for c in opened if c not in mines]
             if available:
                 mines.extend(random.sample(available, min(mines_in_opened, len(available))))
         
-        # Если не хватило — добираем
+        # Добираем если не хватило
         if len(mines) < mines_count:
             remaining = [c for c in all_cells if c not in mines]
             needed = mines_count - len(mines)
             if remaining:
                 mines.extend(random.sample(remaining, min(needed, len(remaining))))
-        
         return mines
     
     else:
-        # ОТКРУТКА: мины должны быть в ОТКРЫТЫХ ячейках (игрок проигрывает)
-        # Чем ниже win_chance, тем больше мин в открытых
-        mines_in_opened = int(mines_count * (1 - win_chance))
+        # Открутка: мины преимущественно в открытых
+        target_in_opened = int(mines_count * (1 - win_chance))
+        mines_in_opened = min(target_in_opened, len(opened))
         mines_in_closed = mines_count - mines_in_opened
         
         mines = []
         if mines_in_opened > 0 and opened:
-            mines.extend(random.sample(opened, min(mines_in_opened, len(opened))))
+            mines.extend(random.sample(opened, mines_in_opened))
         if mines_in_closed > 0 and closed:
             available = [c for c in closed if c not in mines]
             if available:
@@ -7280,7 +7301,6 @@ def generate_mines_field_with_override(mines_count: int, opened_cells: list, use
             needed = mines_count - len(mines)
             if remaining:
                 mines.extend(random.sample(remaining, min(needed, len(remaining))))
-        
         return mines
 # ==================== ИГРА МИНЫ ====================
 
