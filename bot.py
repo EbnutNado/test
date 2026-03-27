@@ -7347,7 +7347,7 @@ async def mines_place_bet(message: Message, state: FSMContext):
         return
     
     min_bet = MINES_SETTINGS["mines_min_bet"]
-    max_bet = MINNES_SETTINGS["mines_max_bet"]
+    max_bet = MINES_SETTINGS["mines_max_bet"]
     
     if bet < min_bet or bet > max_bet:
         await message.answer(f"❌ Ставка от {format_money(min_bet)} до {format_money(max_bet)}")
