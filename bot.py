@@ -7324,6 +7324,13 @@ def get_mines_multiplier(mines_count: int, opened_count: int) -> float:
         return multipliers[-1] if multipliers else 1.0
     return multipliers[opened_count]
 
+def get_mines_multiplier(mines_count: int, opened_count: int) -> float:
+    """Возвращает текущий множитель по количеству открытых ячеек"""
+    multipliers = MINES_SETTINGS["mines_multipliers"].get(mines_count, [])
+    if opened_count >= len(multipliers):
+        return multipliers[-1] if multipliers else 1.0
+    return multipliers[opened_count]
+
 async def show_mines_field(message: Message, user_id: int, first_time: bool = False) -> Message:
     game = active_mines_games.get(user_id)
     if not game:
@@ -7479,21 +7486,21 @@ async def mines_place_bet(message: Message, state: FSMContext):
     data = await state.get_data()
     mines_count = data.get('mines_count')
     
+    # Списываем ставку
     await update_balance(user_id, -bet, "mines_bet", f"Ставка в Минах: {bet}₽")
     
     # Получаем настройки подкрутки
     override = await get_mines_override(user_id)
-    win_chance = override["win_chance"] if override["active"] else None
     
     game_data = {
         "bet": bet,
         "mines_count": mines_count,
         "opened": [],
-        "final_mines": None,
+        "mines_at_game_end": None,  # здесь будут мины в конце
         "status": "playing",
         "message_id": None,
-        "win_chance": win_chance,           # ← ВОЗВРАЩАЕМ
-        "dynamic_mode": override["active"]   # ← ВОЗВРАЩАЕМ
+        "win_chance": override["win_chance"] if override["active"] else 0.5,
+        "dynamic_mode": override["active"]
     }
     
     active_mines_games[user_id] = game_data
@@ -7567,14 +7574,15 @@ async def show_full_field(message: Message, user_id: int, game: dict, is_win: bo
         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons)
     )
 
-async def show_final_board(message: Message, user_id: int, game: dict, current_mines: list, is_win: bool = False, win_amount: int = 0):
-    """Показывает финальное поле: реальные мины и открытые ячейки"""
+async def show_final_board(message: Message, user_id: int, game: dict, is_win: bool = False, win_amount: int = 0):
+    """Показывает финальное поле"""
     
     mines_count = game["mines_count"]
     opened = game["opened"]
     bet = game["bet"]
+    mines = game.get("mines_at_game_end", [])
     
-    # Создаём поле
+    # Создаём поле 5x5
     kb_buttons = []
     for i in range(25):
         row = i // 5
@@ -7583,13 +7591,10 @@ async def show_final_board(message: Message, user_id: int, game: dict, current_m
             kb_buttons.append([])
         
         if i in opened:
-            # Открытая ячейка — показываем 💎
             kb_buttons[row].append(InlineKeyboardButton(text="💎", callback_data="mines_noop"))
-        elif i in current_mines:
-            # Неоткрытая ячейка с миной — показываем 💣
+        elif i in mines:
             kb_buttons[row].append(InlineKeyboardButton(text="💣", callback_data="mines_noop"))
         else:
-            # Неоткрытая безопасная ячейка — показываем ⬜
             kb_buttons[row].append(InlineKeyboardButton(text="⬜", callback_data="mines_noop"))
     
     kb_buttons.append([
@@ -7602,7 +7607,7 @@ async def show_final_board(message: Message, user_id: int, game: dict, current_m
     
     if is_win:
         emoji = "🎉"
-        title = "ПОБЕДА! ВСЕ БЕЗОПАСНЫЕ ЯЧЕЙКИ ОТКРЫТЫ!"
+        title = "ПОБЕДА!"
     else:
         emoji = "💣"
         title = "ВЫ ПРОИГРАЛИ!"
@@ -7612,7 +7617,7 @@ async def show_final_board(message: Message, user_id: int, game: dict, current_m
         f"┌{'─' * 35}┐\n"
         f"│ 💰 Ставка: {format_money(bet):>26} │\n"
         f"│ 💣 Мин на поле: {mines_count:>25} │\n"
-        f"│ 🔓 Открыто ячеек: {len(opened)}/{safe_cells_total:>16} │\n"
+        f"│ 🔓 Открыто: {len(opened)}/{safe_cells_total:>19} │\n"
         f"│ 📈 Множитель: x{multiplier:.2f}{' ' * (23 - len(f'{multiplier:.2f}'))} │\n"
     )
     
@@ -7622,9 +7627,9 @@ async def show_final_board(message: Message, user_id: int, game: dict, current_m
         result_text += f"│ 💸 Потеряно: {format_money(bet):>27} │\n"
     
     result_text += f"└{'─' * 35}┘\n\n"
-    result_text += f"*💎 — открытые безопасные ячейки*\n"
-    result_text += f"*💣 — мины (неоткрытые)*\n"
-    result_text += f"*⬜ — безопасные ячейки (неоткрытые)*"
+    result_text += f"*💎 — открытые безопасные*\n"
+    result_text += f"*💣 — мины*\n"
+    result_text += f"*⬜ — безопасные неоткрытые*"
     
     await message.edit_text(
         result_text,
@@ -7647,14 +7652,19 @@ async def mines_open_cell(callback: CallbackQuery):
         await callback.answer("❌ Эта ячейка уже открыта", show_alert=True)
         return
     
-    # Генерируем поле с учётом подкрутки
-    current_mines = generate_mines_field_with_override(game["mines_count"], game["opened"], user_id)
-    game["final_mines"] = current_mines.copy()
+    # Генерируем мины для этого хода
+    current_mines = generate_mines_for_current_step(
+        game["mines_count"], 
+        game["opened"], 
+        game["win_chance"]
+    )
     
-    # Проверяем, мина ли в выбранной ячейке
-    is_mine = cell in current_mines
+    # Сохраняем для финального отображения
+    game["mines_at_game_end"] = current_mines
     
-    if is_mine:
+    # Проверяем мина ли
+    if cell in current_mines:
+        # Проигрыш
         game["status"] = "lost"
         await callback.answer("💥 БАХ! Ты наступил на мину!", show_alert=True)
         await show_final_board(callback.message, user_id, game, is_win=False)
@@ -7662,10 +7672,11 @@ async def mines_open_cell(callback: CallbackQuery):
         await callback.answer()
         return
     
-    # Безопасная ячейка
+    # Безопасно
     game["opened"].append(cell)
     multiplier = get_mines_multiplier(game["mines_count"], len(game["opened"]))
     
+    # Проверка победы
     safe_cells_total = 25 - game["mines_count"]
     if len(game["opened"]) == safe_cells_total:
         win = int(game["bet"] * multiplier)
@@ -7675,6 +7686,7 @@ async def mines_open_cell(callback: CallbackQuery):
         await callback.answer()
         return
     
+    # Продолжаем
     await show_mines_field(callback.message, user_id, first_time=False)
     await callback.answer(f"✅ Безопасно! Множитель x{multiplier:.2f}", show_alert=False)
 
@@ -7693,14 +7705,18 @@ async def mines_cashout(callback: CallbackQuery):
     
     await update_balance(user_id, win, "mines_win", f"Выигрыш в Минах: {win}₽")
     
-    # Генерируем финальное поле для отображения
-    current_mines = generate_mines_field_with_override(game["mines_count"], game["opened"], user_id)
+    # Генерируем финальное поле
+    if game["mines_at_game_end"] is None:
+        game["mines_at_game_end"] = generate_mines_for_current_step(
+            game["mines_count"], 
+            game["opened"], 
+            game["win_chance"]
+        )
     
-    # Показываем финальное поле
-    await show_final_board(callback.message, user_id, game, current_mines, is_win=True, win_amount=win)
+    await show_final_board(callback.message, user_id, game, is_win=True, win_amount=win)
     del active_mines_games[user_id]
     await callback.answer()
-
+    
 # ----- ВЫХОД ИЗ ИГРЫ -----
 @dp.callback_query(F.data == "mines_exit", MinesStates.playing)
 async def mines_exit(callback: CallbackQuery, state: FSMContext):
@@ -7708,10 +7724,14 @@ async def mines_exit(callback: CallbackQuery, state: FSMContext):
     game = active_mines_games.get(user_id)
     
     if game:
-        # Генерируем финальное поле для отображения
-        current_mines = generate_mines_field_with_override(game["mines_count"], game["opened"], user_id)
-        await show_final_board(callback.message, user_id, game, current_mines, is_win=False)
-        await update_balance(user_id, game["bet"], "mines_refund", "Возврат ставки (выход из игры)")
+        if game["mines_at_game_end"] is None:
+            game["mines_at_game_end"] = generate_mines_for_current_step(
+                game["mines_count"], 
+                game["opened"], 
+                game["win_chance"]
+            )
+        await show_final_board(callback.message, user_id, game, is_win=False)
+        await update_balance(user_id, game["bet"], "mines_refund", "Возврат ставки (выход)")
         del active_mines_games[user_id]
     else:
         await callback.message.edit_text(
