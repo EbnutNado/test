@@ -7205,8 +7205,8 @@ async def disable_mines_override(user_id: int) -> None:
 # ==================== ГЕНЕРАЦИЯ ПОЛЯ С ПОДКРУТКОЙ ====================
 def generate_mines_field_with_override(mines_count: int, opened_cells: list, user_id: int) -> list:
     """Генерирует поле с учётом подкрутки.
-    При win_chance > 0.5: мины НЕ попадают в открытые ячейки
-    При win_chance < 0.5: мины попадают в открытые ячейки
+    При win_chance > 0.5: мины НЕ попадают в открытые ячейки (игрок выигрывает)
+    При win_chance < 0.5: мины попадают в открытые ячейки (игрок проигрывает)
     """
     import sqlite3
     
@@ -7214,7 +7214,7 @@ def generate_mines_field_with_override(mines_count: int, opened_cells: list, use
     opened = opened_cells.copy()
     closed = [c for c in all_cells if c not in opened]
     
-    # Синхронно получаем настройки подкрутки из БД
+    # Получаем настройки подкрутки
     win_chance = None
     active = False
     
@@ -7234,12 +7234,12 @@ def generate_mines_field_with_override(mines_count: int, opened_cells: list, use
     except Exception as e:
         logger.error(f"Ошибка при получении подкрутки для {user_id}: {e}")
     
+    # Без подкрутки или 50% — случайное распределение
     if not active or win_chance == 0.5:
-        # Без подкрутки или 50% — случайное распределение
         return random.sample(all_cells, mines_count)
     
     if win_chance > 0.5:
-        # ПОДКРУТКА: мины должны быть в неоткрытых ячейках
+        # ПОДКРУТКА: мины должны быть в НЕОТКРЫТЫХ ячейках (игрок выигрывает)
         # Чем выше win_chance, тем больше мин в неоткрытых
         mines_in_closed = int(mines_count * win_chance)
         mines_in_opened = mines_count - mines_in_closed
@@ -7252,7 +7252,7 @@ def generate_mines_field_with_override(mines_count: int, opened_cells: list, use
             if available:
                 mines.extend(random.sample(available, min(mines_in_opened, len(available))))
         
-        # Если не хватило — добираем из оставшихся
+        # Если не хватило — добираем
         if len(mines) < mines_count:
             remaining = [c for c in all_cells if c not in mines]
             needed = mines_count - len(mines)
@@ -7262,7 +7262,7 @@ def generate_mines_field_with_override(mines_count: int, opened_cells: list, use
         return mines
     
     else:
-        # ОТКРУТКА: мины должны быть в открытых ячейках
+        # ОТКРУТКА: мины должны быть в ОТКРЫТЫХ ячейках (игрок проигрывает)
         # Чем ниже win_chance, тем больше мин в открытых
         mines_in_opened = int(mines_count * (1 - win_chance))
         mines_in_closed = mines_count - mines_in_opened
@@ -7461,12 +7461,19 @@ async def mines_place_bet(message: Message, state: FSMContext):
     
     await update_balance(user_id, -bet, "mines_bet", f"Ставка в Минах: {bet}₽")
     
+    # Получаем настройки подкрутки
+    override = await get_mines_override(user_id)
+    win_chance = override["win_chance"] if override["active"] else None
+    
     game_data = {
         "bet": bet,
         "mines_count": mines_count,
         "opened": [],
+        "final_mines": None,
         "status": "playing",
-        "message_id": None
+        "message_id": None,
+        "win_chance": win_chance,           # ← ВОЗВРАЩАЕМ
+        "dynamic_mode": override["active"]   # ← ВОЗВРАЩАЕМ
     }
     
     active_mines_games[user_id] = game_data
@@ -7620,19 +7627,17 @@ async def mines_open_cell(callback: CallbackQuery):
         await callback.answer("❌ Эта ячейка уже открыта", show_alert=True)
         return
     
-    # Генерируем поле с учётом уже открытых ячеек
+    # Генерируем поле с учётом подкрутки
     current_mines = generate_mines_field_with_override(game["mines_count"], game["opened"], user_id)
+    game["final_mines"] = current_mines.copy()
     
     # Проверяем, мина ли в выбранной ячейке
     is_mine = cell in current_mines
     
     if is_mine:
-        # Проигрыш — показываем поле с минами в неоткрытых ячейках
         game["status"] = "lost"
         await callback.answer("💥 БАХ! Ты наступил на мину!", show_alert=True)
-        
-        # Показываем финальное поле (мины в неоткрытых ячейках)
-        await show_final_board(callback.message, user_id, game, current_mines, is_win=False)
+        await show_final_board(callback.message, user_id, game, is_win=False)
         del active_mines_games[user_id]
         await callback.answer()
         return
@@ -7641,20 +7646,15 @@ async def mines_open_cell(callback: CallbackQuery):
     game["opened"].append(cell)
     multiplier = get_mines_multiplier(game["mines_count"], len(game["opened"]))
     
-    # Проверяем победу (открыты все безопасные ячейки)
-    # Всего безопасных ячеек = 25 - mines_count
     safe_cells_total = 25 - game["mines_count"]
     if len(game["opened"]) == safe_cells_total:
         win = int(game["bet"] * multiplier)
         await update_balance(user_id, win, "mines_win", f"Выигрыш в Минах: {win}₽")
-        
-        # Показываем финальное поле (мины в неоткрытых ячейках)
-        await show_final_board(callback.message, user_id, game, current_mines, is_win=True, win_amount=win)
+        await show_final_board(callback.message, user_id, game, is_win=True, win_amount=win)
         del active_mines_games[user_id]
         await callback.answer()
         return
     
-    # Обновляем поле
     await show_mines_field(callback.message, user_id, first_time=False)
     await callback.answer(f"✅ Безопасно! Множитель x{multiplier:.2f}", show_alert=False)
 
