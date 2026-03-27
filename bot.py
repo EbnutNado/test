@@ -7326,55 +7326,73 @@ def get_mines_multiplier(mines_count: int, opened_count: int) -> float:
 
 
 def generate_mines_for_current_step(mines_count: int, opened_cells: list, win_chance: float) -> list:
-    """Генерирует мины для текущего хода с учётом подкрутки"""
+    """Генерирует мины с учётом подкрутки"""
     import random
     
     all_cells = list(range(25))
     opened = opened_cells.copy()
     closed = [c for c in all_cells if c not in opened]
     
-    # Без подкрутки или 50%
-    if win_chance == 0.5:
+    # Если нет открытых ячеек (первый ход) или win_chance == 0.5
+    if not opened or win_chance == 0.5:
         return random.sample(all_cells, mines_count)
     
-    # Подкрутка > 0.5 — мины в закрытых ячейках
+    # ПОДКРУТКА (win_chance > 0.5) - мины в закрытых ячейках
     if win_chance > 0.5:
-        closed_mines = int(mines_count * win_chance)
-        opened_mines = mines_count - closed_mines
+        # Чем выше win_chance, тем больше мин в закрытых
+        target_in_closed = int(mines_count * win_chance)
+        mines_in_closed = min(target_in_closed, len(closed))
+        mines_in_opened = mines_count - mines_in_closed
         
         mines = []
-        if closed_mines > 0 and closed:
-            mines.extend(random.sample(closed, min(closed_mines, len(closed))))
-        if opened_mines > 0 and opened:
-            available = [c for c in opened if c not in mines]
-            if available:
-                mines.extend(random.sample(available, min(opened_mines, len(available))))
         
+        # Берём мины из закрытых
+        if mines_in_closed > 0 and closed:
+            mines = random.sample(closed, min(mines_in_closed, len(closed)))
+        
+        # Остальные мины из открытых (если нужно)
+        if mines_in_opened > 0 and opened:
+            available_opened = [c for c in opened if c not in mines]
+            if available_opened:
+                needed = min(mines_in_opened, len(available_opened))
+                mines.extend(random.sample(available_opened, needed))
+        
+        # Если всё ещё не хватает - добираем из любых
         if len(mines) < mines_count:
             remaining = [c for c in all_cells if c not in mines]
             needed = mines_count - len(mines)
             if remaining:
                 mines.extend(random.sample(remaining, min(needed, len(remaining))))
+        
         return mines
     
-    # Открутка < 0.5 — мины в открытых ячейках
+    # ОТКРУТКА (win_chance < 0.5) - мины в открытых ячейках
     else:
-        opened_mines = int(mines_count * (1 - win_chance))
-        closed_mines = mines_count - opened_mines
+        # Чем меньше win_chance, тем больше мин в открытых
+        target_in_opened = int(mines_count * (1 - win_chance))
+        mines_in_opened = min(target_in_opened, len(opened))
+        mines_in_closed = mines_count - mines_in_opened
         
         mines = []
-        if opened_mines > 0 and opened:
-            mines.extend(random.sample(opened, min(opened_mines, len(opened))))
-        if closed_mines > 0 and closed:
-            available = [c for c in closed if c not in mines]
-            if available:
-                mines.extend(random.sample(available, min(closed_mines, len(available))))
         
+        # Берём мины из открытых
+        if mines_in_opened > 0 and opened:
+            mines = random.sample(opened, min(mines_in_opened, len(opened)))
+        
+        # Остальные мины из закрытых
+        if mines_in_closed > 0 and closed:
+            available_closed = [c for c in closed if c not in mines]
+            if available_closed:
+                needed = min(mines_in_closed, len(available_closed))
+                mines.extend(random.sample(available_closed, needed))
+        
+        # Если всё ещё не хватает - добираем из любых
         if len(mines) < mines_count:
             remaining = [c for c in all_cells if c not in mines]
             needed = mines_count - len(mines)
             if remaining:
                 mines.extend(random.sample(remaining, min(needed, len(remaining))))
+        
         return mines
 
 async def show_mines_field(message: Message, user_id: int, first_time: bool = False) -> Message:
@@ -7621,14 +7639,14 @@ async def show_full_field(message: Message, user_id: int, game: dict, is_win: bo
     )
 
 async def show_final_board(message: Message, user_id: int, game: dict, is_win: bool = False, win_amount: int = 0):
-    """Показывает финальное поле"""
+    """Показывает финальное поле с реальными минами"""
     
     mines_count = game["mines_count"]
     opened = game["opened"]
     bet = game["bet"]
     mines = game.get("mines_at_game_end", [])
     
-    # Создаём поле 5x5
+    # Создаём поле
     kb_buttons = []
     for i in range(25):
         row = i // 5
@@ -7677,6 +7695,10 @@ async def show_final_board(message: Message, user_id: int, game: dict, is_win: b
     result_text += f"*💣 — мины*\n"
     result_text += f"*⬜ — безопасные неоткрытые*"
     
+    # Проверка для отладки
+    if len(mines) != mines_count:
+        result_text += f"\n\n⚠️ *ОШИБКА!* Мин: {len(mines)}/{mines_count}"
+    
     await message.edit_text(
         result_text,
         parse_mode="Markdown",
@@ -7708,9 +7730,8 @@ async def mines_open_cell(callback: CallbackQuery):
     # Сохраняем для финального отображения
     game["mines_at_game_end"] = current_mines
     
-    # Проверяем мина ли
+    # Проверяем, мина ли в выбранной ячейке
     if cell in current_mines:
-        # Проигрыш
         game["status"] = "lost"
         await callback.answer("💥 БАХ! Ты наступил на мину!", show_alert=True)
         await show_final_board(callback.message, user_id, game, is_win=False)
@@ -7718,7 +7739,7 @@ async def mines_open_cell(callback: CallbackQuery):
         await callback.answer()
         return
     
-    # Безопасно
+    # Безопасная ячейка
     game["opened"].append(cell)
     multiplier = get_mines_multiplier(game["mines_count"], len(game["opened"]))
     
@@ -7732,7 +7753,7 @@ async def mines_open_cell(callback: CallbackQuery):
         await callback.answer()
         return
     
-    # Продолжаем
+    # Обновляем поле
     await show_mines_field(callback.message, user_id, first_time=False)
     await callback.answer(f"✅ Безопасно! Множитель x{multiplier:.2f}", show_alert=False)
 
@@ -7751,7 +7772,7 @@ async def mines_cashout(callback: CallbackQuery):
     
     await update_balance(user_id, win, "mines_win", f"Выигрыш в Минах: {win}₽")
     
-    # Генерируем финальное поле
+    # Если нет сохранённых мин - генерируем
     if game["mines_at_game_end"] is None:
         game["mines_at_game_end"] = generate_mines_for_current_step(
             game["mines_count"], 
