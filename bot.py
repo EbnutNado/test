@@ -7324,12 +7324,58 @@ def get_mines_multiplier(mines_count: int, opened_count: int) -> float:
         return multipliers[-1] if multipliers else 1.0
     return multipliers[opened_count]
 
-def get_mines_multiplier(mines_count: int, opened_count: int) -> float:
-    """Возвращает текущий множитель по количеству открытых ячеек"""
-    multipliers = MINES_SETTINGS["mines_multipliers"].get(mines_count, [])
-    if opened_count >= len(multipliers):
-        return multipliers[-1] if multipliers else 1.0
-    return multipliers[opened_count]
+
+def generate_mines_for_current_step(mines_count: int, opened_cells: list, win_chance: float) -> list:
+    """Генерирует мины для текущего хода с учётом подкрутки"""
+    import random
+    
+    all_cells = list(range(25))
+    opened = opened_cells.copy()
+    closed = [c for c in all_cells if c not in opened]
+    
+    # Без подкрутки или 50%
+    if win_chance == 0.5:
+        return random.sample(all_cells, mines_count)
+    
+    # Подкрутка > 0.5 — мины в закрытых ячейках
+    if win_chance > 0.5:
+        closed_mines = int(mines_count * win_chance)
+        opened_mines = mines_count - closed_mines
+        
+        mines = []
+        if closed_mines > 0 and closed:
+            mines.extend(random.sample(closed, min(closed_mines, len(closed))))
+        if opened_mines > 0 and opened:
+            available = [c for c in opened if c not in mines]
+            if available:
+                mines.extend(random.sample(available, min(opened_mines, len(available))))
+        
+        if len(mines) < mines_count:
+            remaining = [c for c in all_cells if c not in mines]
+            needed = mines_count - len(mines)
+            if remaining:
+                mines.extend(random.sample(remaining, min(needed, len(remaining))))
+        return mines
+    
+    # Открутка < 0.5 — мины в открытых ячейках
+    else:
+        opened_mines = int(mines_count * (1 - win_chance))
+        closed_mines = mines_count - opened_mines
+        
+        mines = []
+        if opened_mines > 0 and opened:
+            mines.extend(random.sample(opened, min(opened_mines, len(opened))))
+        if closed_mines > 0 and closed:
+            available = [c for c in closed if c not in mines]
+            if available:
+                mines.extend(random.sample(available, min(closed_mines, len(available))))
+        
+        if len(mines) < mines_count:
+            remaining = [c for c in all_cells if c not in mines]
+            needed = mines_count - len(mines)
+            if remaining:
+                mines.extend(random.sample(remaining, min(needed, len(remaining))))
+        return mines
 
 async def show_mines_field(message: Message, user_id: int, first_time: bool = False) -> Message:
     game = active_mines_games.get(user_id)
