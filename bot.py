@@ -28,7 +28,7 @@ import aiosqlite
 
 # ==================== КОНФИГУРАЦИЯ ====================
 # Токен лучше задать в переменной окружения BOT_TOKEN (не хранить в коде в продакшене).
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8451168327:AAGQffadqqBg3pZNQnjctVxH-dUgXsovTr4")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8611222074:AAHYK7C9Y25pxAoxkOC1jUb4Zo8spXoMrpU")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "5775839902"))
 # Telegram username бота для генерации ссылок вида https://t.me/<bot_username>?start=...
 # Если не задан — будет использован bot.get_me().username.
@@ -247,6 +247,18 @@ ECONOMY_SETTINGS = {
     "daily_top_reward_2": 20000,
     "daily_top_reward_3": 12000,
     "inventory_base_slots": 20,
+    ECONOMY_SETTINGS = {
+    # ... существующие настройки ...
+    
+    "mines_min_bet": 100,
+    "mines_max_bet": 10000,
+    "mines_field_size": 25,
+    "mines_multipliers": {
+        3: [1.0, 1.2, 1.5, 1.9, 2.4, 3.0, 3.8, 4.8, 6.0, 7.5, 9.5, 12.0, 15.0, 18.5, 23.0, 28.0, 34.0, 41.0, 49.0, 58.0, 68.0, 79.0, 91.0, 104.0, 118.0],
+        5: [1.0, 1.3, 1.7, 2.3, 3.1, 4.1, 5.5, 7.3, 9.7, 12.9, 17.0, 22.5, 29.5, 38.5, 50.0, 65.0, 84.0, 109.0, 141.0, 183.0, 237.0, 308.0, 400.0, 520.0, 676.0],
+        8: [1.0, 1.5, 2.3, 3.5, 5.3, 8.0, 12.0, 18.0, 27.0, 40.5, 60.7, 91.0, 136.5, 204.7, 307.0, 460.5, 690.7, 1036.0, 1554.0, 2331.0, 3496.5, 5244.7, 7867.0, 11800.5, 17700.7],
+        12: [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0, 1024.0, 2048.0, 4096.0, 8192.0, 16384.0, 32768.0, 65536.0, 131072.0, 262144.0, 524288.0, 1048576.0, 2097152.0, 4194304.0, 8388608.0, 16777216.0],
+    },
 }
 
 # ==================== МЕХАНИКИ БИЗНЕСОВ ====================
@@ -775,6 +787,8 @@ async def init_db():
             "ALTER TABLE bank_deposits ADD COLUMN total_interest INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE players ADD COLUMN poor_alerted_at TIMESTAMP",
             "ALTER TABLE players ADD COLUMN extreme_poor_alerted_at TIMESTAMP",
+            "ALTER TABLE players ADD COLUMN mines_override REAL DEFAULT NULL",
+            "ALTER TABLE players ADD COLUMN mines_override_active INTEGER DEFAULT 0",
         ):
             try:
                 await db.execute(alter)
@@ -2725,6 +2739,7 @@ def get_minigames_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🎲 Кости (чёт / нечёт)", callback_data="game_dice")],
         [InlineKeyboardButton(text="🛣️ Укладка асфальта", callback_data="game_asphalt")],
         [InlineKeyboardButton(text="⚔️ Дуэль", callback_data="game_duel")],
+        [InlineKeyboardButton(text="💣 Мины", callback_data="game_mines")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -2763,6 +2778,7 @@ def get_admin_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🎁 Бонус", callback_data="admin_bonus")],
         [InlineKeyboardButton(text="🏦 Влить в кассу банка", callback_data="admin_bank_inject")],
         [InlineKeyboardButton(text="📈 Экономика (штрафы/налоги/комиссия)", callback_data="admin_economy")],
+        [InlineKeyboardButton(text="💣 Настройка Mines", callback_data="admin_mines")],
         [InlineKeyboardButton(text="🧾 Чеки", callback_data="admin_checks")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
         [InlineKeyboardButton(text="❌ Закрыть", callback_data="admin_close")],
@@ -2871,6 +2887,12 @@ class RouletteStates(StatesGroup):
     waiting_for_bet = State()
 
 
+class MinesStates(StatesGroup):
+    choosing_mines = State()
+    waiting_bet = State()
+    playing = State()
+
+
 class InventoryStates(StatesGroup):
     choosing_gift_target = State()
     choosing_gift_stack = State()
@@ -2901,6 +2923,7 @@ async def handle_global_inline_back(callback: CallbackQuery, state: FSMContext):
 # ==================== АКТИВНЫЕ ДУЭЛИ ====================
 active_duels = {}
 DUEL_TIMEOUT = 60
+active_mines_games = {}  # {user_id: {bet, mines_count, mines, opened, message_id}}
 
 # ==================== СИСТЕМА ЧЕКОВ ====================
 def generate_check_id() -> str:
@@ -7145,6 +7168,585 @@ async def referral_credit_scheduler_immediate():
             logger.error(f"referral_credit_scheduler_immediate ошибка: {e}")
 
         await asyncio.sleep(20)
+
+# ==================== АДМИН-ПОДКРУТКА ДЛЯ MINES ====================
+
+async def get_mines_override(user_id: int) -> dict:
+    """Получает настройки подкрутки для игрока"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            "SELECT mines_override, mines_override_active FROM players WHERE user_id = ?",
+            (user_id,)
+        )
+        row = await cursor.fetchone()
+        if row and row[1]:
+            return {"active": True, "win_chance": row[0]}
+        return {"active": False, "win_chance": None}
+
+async def set_mines_override(user_id: int, win_chance: float, active: bool = True) -> None:
+    """Устанавливает подкрутку для игрока"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "UPDATE players SET mines_override = ?, mines_override_active = ? WHERE user_id = ?",
+            (win_chance, 1 if active else 0, user_id)
+        )
+        await db.commit()
+
+async def disable_mines_override(user_id: int) -> None:
+    """Отключает подкрутку для игрока"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "UPDATE players SET mines_override_active = 0 WHERE user_id = ?",
+            (user_id,)
+        )
+        await db.commit()
+
+# ==================== ИГРА МИНЫ ====================
+
+def generate_mines_field(mines_count: int, exclude_cell: int = None, user_id: int = None) -> list:
+    """Генерирует позиции мин с учётом админ-подкрутки"""
+    all_cells = list(range(25))
+    if exclude_cell is not None and exclude_cell in all_cells:
+        all_cells.remove(exclude_cell)
+    
+    # Проверяем подкрутку (синхронный вызов — нужно передавать user_id)
+    if user_id:
+        # Используем asyncio.run_coroutine_threadsafe, но проще передать уже готовое значение
+        pass
+    
+    return random.sample(all_cells, min(mines_count, len(all_cells)))
+
+def get_mines_multiplier(mines_count: int, opened_count: int) -> float:
+    """Возвращает текущий множитель по количеству открытых ячеек"""
+    multipliers = ECONOMY_SETTINGS["mines_multipliers"].get(mines_count, [])
+    if opened_count >= len(multipliers):
+        return multipliers[-1] if multipliers else 1.0
+    return multipliers[opened_count]
+
+async def show_mines_field(message: Message, user_id: int, first_time: bool = False) -> Message:
+    """Отображает игровое поле с кнопками"""
+    game = active_mines_games.get(user_id)
+    if not game:
+        return None
+    
+    mines_count = game["mines_count"]
+    opened = game["opened"]
+    bet = game["bet"]
+    multiplier = get_mines_multiplier(mines_count, len(opened))
+    current_win = int(bet * multiplier)
+    
+    # Создаём клавиатуру 5x5
+    kb_buttons = []
+    for i in range(25):
+        row = i // 5
+        col = i % 5
+        if len(kb_buttons) <= row:
+            kb_buttons.append([])
+        
+        if i in opened:
+            kb_buttons[row].append(InlineKeyboardButton(text="💎", callback_data=f"mines_opened_{i}"))
+        else:
+            kb_buttons[row].append(InlineKeyboardButton(text="⬛", callback_data=f"mines_cell_{i}"))
+    
+    # Добавляем кнопки управления
+    kb_buttons.append([
+        InlineKeyboardButton(text=f"💰 ЗАБРАТЬ {format_money(current_win)}", callback_data="mines_cashout"),
+        InlineKeyboardButton(text="❌ Выход", callback_data="mines_exit")
+    ])
+    
+    # Прогресс-бар
+    progress = int(len(opened) / 25 * 20)
+    progress_bar = "█" * progress + "░" * (20 - progress)
+    
+    text = (
+        f"💣 *МИНЫ — {mines_count} мин*\n\n"
+        f"┌{'─' * 20}┐\n"
+        f"│ {progress_bar} │\n"
+        f"└{'─' * 20}┘\n\n"
+        f"💰 Ставка: {format_money(bet)}\n"
+        f"🔓 Открыто: {len(opened)}/25 ячеек\n"
+        f"📈 Множитель: x{multiplier:.2f}\n"
+        f"💎 Выигрыш при выходе: {format_money(current_win)}\n\n"
+        f"*Нажми на ⬛, чтобы открыть ячейку.*\n"
+        f"Наступишь на 💣 — проиграешь!"
+    )
+    
+    if first_time:
+        return await message.answer(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
+    else:
+        await message.edit_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
+        return message
+
+# ----- НАЧАЛО ИГРЫ -----
+@dp.callback_query(F.data == "game_mines")
+async def mines_start(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    user = await get_user(user_id)
+    if not user:
+        await callback.answer(NOT_REGISTERED_ALERT, show_alert=True)
+        return
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💣 3 мины (x118 макс)", callback_data="mines_count_3")],
+        [InlineKeyboardButton(text="💣💣 5 мин (x676 макс)", callback_data="mines_count_5")],
+        [InlineKeyboardButton(text="💣💣💣 8 мин (x17700 макс)", callback_data="mines_count_8")],
+        [InlineKeyboardButton(text="💣💣💣💣 12 мин (x16.7 млн макс)", callback_data="mines_count_12")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_games")]
+    ])
+    
+    await callback.message.edit_text(
+        "💣 *ИГРА «МИНЫ»*\n\n"
+        "Выбери количество мин на поле 5×5:\n"
+        "• 3 мины — низкий риск, низкий множитель\n"
+        "• 5 мин — средний риск\n"
+        "• 8 мин — высокий риск, высокий множитель\n"
+        "• 12 мин — экстремальный риск, огромные множители!\n\n"
+        "_Чем больше мин — тем выше множитель за каждую открытую ячейку._",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+    await state.set_state(MinesStates.choosing_mines)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("mines_count_"), MinesStates.choosing_mines)
+async def mines_choose_count(callback: CallbackQuery, state: FSMContext):
+    mines_count = int(callback.data.split("_")[2])
+    await state.update_data(mines_count=mines_count)
+    await state.set_state(MinesStates.waiting_bet)
+    
+    user = await get_user(callback.from_user.id)
+    max_bet = min(ECONOMY_SETTINGS["mines_max_bet"], user['balance'])
+    
+    await callback.message.edit_text(
+        f"💣 *МИНЫ — {mines_count} мин*\n\n"
+        f"💰 Баланс: {format_money(user['balance'])}\n"
+        f"💸 Ставка: от {format_money(ECONOMY_SETTINGS['mines_min_bet'])} до {format_money(max_bet)}\n\n"
+        f"Введи сумму ставки числом:",
+        parse_mode="Markdown"
+    )
+    await callback.message.answer(
+        "↩️ Для отмены нажми «🔙 Назад».",
+        reply_markup=get_state_back_inline_keyboard(),
+    )
+    await callback.answer()
+
+@dp.message(MinesStates.waiting_bet)
+async def mines_place_bet(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    user = await get_user(user_id)
+    if not user:
+        await message.answer(NOT_REGISTERED_HINT)
+        await state.clear()
+        return
+    
+    try:
+        bet = int(message.text.strip())
+    except ValueError:
+        await message.answer("❌ Введи число!")
+        return
+    
+    min_bet = ECONOMY_SETTINGS["mines_min_bet"]
+    max_bet = ECONOMY_SETTINGS["mines_max_bet"]
+    
+    if bet < min_bet or bet > max_bet:
+        await message.answer(f"❌ Ставка от {format_money(min_bet)} до {format_money(max_bet)}")
+        return
+    
+    if bet > user['balance']:
+        await message.answer(f"❌ Недостаточно средств! Баланс: {format_money(user['balance'])}")
+        return
+    
+    data = await state.get_data()
+    mines_count = data.get('mines_count')
+    
+    # Списываем ставку
+    await update_balance(user_id, -bet, "mines_bet", f"Ставка в Минах: {bet}₽")
+    
+    # Создаём игру
+    first_cell = random.randint(0, 24)
+    
+    # Проверяем подкрутку
+    override = await get_mines_override(user_id)
+    if override["active"]:
+        win_chance = override["win_chance"]
+        if win_chance >= 1.0:
+            mines = []  # без мин
+        elif win_chance <= 0.0:
+            mines = list(range(25))
+            if first_cell in mines:
+                mines.remove(first_cell)
+        else:
+            # Пропорционально уменьшаем количество мин
+            adjusted = max(1, int(mines_count * (1 - win_chance)))
+            all_cells = list(range(25))
+            all_cells.remove(first_cell)
+            mines = random.sample(all_cells, min(adjusted, len(all_cells)))
+    else:
+        all_cells = list(range(25))
+        all_cells.remove(first_cell)
+        mines = random.sample(all_cells, mines_count)
+    
+    game_data = {
+        "bet": bet,
+        "mines_count": mines_count,
+        "mines": mines,
+        "opened": [first_cell],
+        "status": "playing",
+        "message_id": None
+    }
+    
+    active_mines_games[user_id] = game_data
+    
+    # Отправляем игровое поле
+    msg = await show_mines_field(message, user_id, first_time=True)
+    game_data["message_id"] = msg.message_id
+    
+    await state.set_state(MinesStates.playing)
+
+# ----- ОТКРЫТИЕ ЯЧЕЙКИ -----
+@dp.callback_query(F.data.startswith("mines_cell_"), MinesStates.playing)
+async def mines_open_cell(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    cell = int(callback.data.split("_")[2])
+    game = active_mines_games.get(user_id)
+    
+    if not game or game["status"] != "playing":
+        await callback.answer("❌ Игра не найдена или завершена", show_alert=True)
+        return
+    
+    if cell in game["opened"]:
+        await callback.answer("❌ Эта ячейка уже открыта", show_alert=True)
+        return
+    
+    # Проверяем, не мина ли
+    if cell in game["mines"]:
+        # Проигрыш
+        game["status"] = "lost"
+        await callback.answer("💥 БАХ! Ты наступил на мину!", show_alert=True)
+        
+        # Показываем все мины
+        kb_buttons = []
+        for i in range(25):
+            row = i // 5
+            col = i % 5
+            if len(kb_buttons) <= row:
+                kb_buttons.append([])
+            
+            if i in game["mines"]:
+                kb_buttons[row].append(InlineKeyboardButton(text="💣", callback_data="mines_noop"))
+            elif i in game["opened"]:
+                kb_buttons[row].append(InlineKeyboardButton(text="💎", callback_data="mines_noop"))
+            else:
+                kb_buttons[row].append(InlineKeyboardButton(text="⬛", callback_data="mines_noop"))
+        
+        kb_buttons.append([InlineKeyboardButton(text="🔄 Играть снова", callback_data="game_mines")])
+        kb_buttons.append([InlineKeyboardButton(text="🔙 В меню", callback_data="back_to_games")])
+        
+        await callback.message.edit_text(
+            f"💣 *ВЫ ПРОИГРАЛИ!*\n\n"
+            f"💰 Ставка: {format_money(game['bet'])}\n"
+            f"💥 Наступил на мину!\n"
+            f"💸 Потеряно: {format_money(game['bet'])}\n\n"
+            f"*Красные 💣 — мины*\n"
+            f"*Зелёные 💎 — открытые ячейки*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons)
+        )
+        del active_mines_games[user_id]
+        await callback.answer()
+        return
+    
+    # Безопасная ячейка
+    game["opened"].append(cell)
+    multiplier = get_mines_multiplier(game["mines_count"], len(game["opened"]))
+    
+    # Если открыты все ячейки — победа
+    if len(game["opened"]) == 25:
+        win = int(game["bet"] * multiplier)
+        await update_balance(user_id, win, "mines_win", f"Выигрыш в Минах: {win}₽")
+        
+        await callback.message.edit_text(
+            f"🎉 *ПОБЕДА! ВСЕ ЯЧЕЙКИ ОТКРЫТЫ!*\n\n"
+            f"💰 Ставка: {format_money(game['bet'])}\n"
+            f"📈 Множитель: x{multiplier:.2f}\n"
+            f"💎 Выигрыш: {format_money(win)}\n\n"
+            f"Поздравляю! 🔥",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Играть снова", callback_data="game_mines")],
+                [InlineKeyboardButton(text="🔙 В меню", callback_data="back_to_games")]
+            ])
+        )
+        del active_mines_games[user_id]
+        await callback.answer()
+        return
+    
+    # Обновляем поле
+    await show_mines_field(callback.message, user_id, first_time=False)
+    await callback.answer(f"✅ Безопасно! Множитель x{multiplier:.2f}", show_alert=False)
+
+# ----- ЗАБРАТЬ ВЫИГРЫШ -----
+@dp.callback_query(F.data == "mines_cashout", MinesStates.playing)
+async def mines_cashout(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    game = active_mines_games.get(user_id)
+    
+    if not game or game["status"] != "playing":
+        await callback.answer("❌ Игра не найдена", show_alert=True)
+        return
+    
+    multiplier = get_mines_multiplier(game["mines_count"], len(game["opened"]))
+    win = int(game["bet"] * multiplier)
+    
+    await update_balance(user_id, win, "mines_win", f"Выигрыш в Минах: {win}₽")
+    
+    await callback.message.edit_text(
+        f"💰 *ВЫ ЗАБРАЛИ ВЫИГРЫШ!*\n\n"
+        f"💰 Ставка: {format_money(game['bet'])}\n"
+        f"🔓 Открыто ячеек: {len(game['opened'])}/25\n"
+        f"📈 Множитель: x{multiplier:.2f}\n"
+        f"💎 Выигрыш: {format_money(win)}\n\n"
+        f"Отличная игра! 🎉",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Играть снова", callback_data="game_mines")],
+            [InlineKeyboardButton(text="🔙 В меню", callback_data="back_to_games")]
+        ])
+    )
+    del active_mines_games[user_id]
+    await callback.answer()
+
+# ----- ВЫХОД ИЗ ИГРЫ -----
+@dp.callback_query(F.data == "mines_exit", MinesStates.playing)
+async def mines_exit(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    game = active_mines_games.get(user_id)
+    
+    if game:
+        await update_balance(user_id, game["bet"], "mines_refund", "Возврат ставки (выход из игры)")
+        del active_mines_games[user_id]
+    
+    await callback.message.edit_text(
+        "❌ *Игра прервана*\n\nСтавка возвращена.",
+        parse_mode="Markdown",
+        reply_markup=get_minigames_keyboard()
+    )
+    await state.clear()
+    await callback.answer()
+
+@dp.callback_query(F.data == "mines_noop")
+async def mines_noop(callback: CallbackQuery):
+    await callback.answer()
+
+# ==================== АДМИН-ПАНЕЛЬ MINES ====================
+
+@dp.callback_query(F.data == "admin_mines")
+async def admin_mines_menu(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔ Доступ запрещен!", show_alert=True)
+        return
+    
+    active_games = len(active_mines_games)
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎲 Подкрутка удачи", callback_data="admin_mines_override")],
+        [InlineKeyboardButton(text="👥 Активные игры", callback_data="admin_mines_active")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")]
+    ])
+    
+    await callback.message.edit_text(
+        f"💣 *Админ-панель MINES*\n\n"
+        f"📊 Активных игр: {active_games}\n\n"
+        f"Выберите действие:",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "admin_mines_override")
+async def admin_mines_override(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔", show_alert=True)
+        return
+    
+    all_users = await get_all_users()
+    await callback.message.answer(
+        "🎲 *Подкрутка удачи в Mines*\n\n"
+        "Выберите игрока:",
+        parse_mode="Markdown",
+        reply_markup=get_users_keyboard(all_users, ADMIN_ID, "admin_mines_override_user_")
+    )
+    await state.set_state("admin_mines_override_user")
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("admin_mines_override_user_"))
+async def admin_mines_override_user(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔", show_alert=True)
+        return
+    
+    user_id = int(callback.data.split("_")[5])
+    await state.update_data(target_user=user_id)
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎲 Всегда выигрывает (100%)", callback_data="mines_override_100")],
+        [InlineKeyboardButton(text="💀 Всегда проигрывает (0%)", callback_data="mines_override_0")],
+        [InlineKeyboardButton(text="📊 75% побед", callback_data="mines_override_75")],
+        [InlineKeyboardButton(text="📊 50% побед", callback_data="mines_override_50")],
+        [InlineKeyboardButton(text="📊 25% побед", callback_data="mines_override_25")],
+        [InlineKeyboardButton(text="🔧 Своё значение (0.0-1.0)", callback_data="mines_override_custom")],
+        [InlineKeyboardButton(text="❌ Отключить подкрутку", callback_data="mines_override_off")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_mines")]
+    ])
+    
+    user = await get_user(user_id)
+    await callback.message.edit_text(
+        f"🎲 *Подкрутка удачи*\n\n"
+        f"👤 Игрок: {user['full_name']}\n\n"
+        f"Выберите режим:",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+    await state.set_state("admin_mines_override_value")
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("mines_override_"))
+async def admin_mines_set_override(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔", show_alert=True)
+        return
+    
+    data = await state.get_data()
+    target_user = data.get("target_user")
+    if not target_user:
+        await callback.answer("Ошибка: игрок не выбран", show_alert=True)
+        return
+    
+    action = callback.data.split("_")[2]
+    
+    if action == "100":
+        win_chance = 1.0
+        mode_text = "ВСЕГДА ВЫИГРЫВАЕТ"
+    elif action == "0":
+        win_chance = 0.0
+        mode_text = "ВСЕГДА ПРОИГРЫВАЕТ"
+    elif action == "75":
+        win_chance = 0.75
+        mode_text = "75% побед"
+    elif action == "50":
+        win_chance = 0.5
+        mode_text = "50% побед"
+    elif action == "25":
+        win_chance = 0.25
+        mode_text = "25% побед"
+    elif action == "off":
+        await disable_mines_override(target_user)
+        await callback.message.edit_text(
+            f"✅ Подкрутка для игрока отключена.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 В админку Mines", callback_data="admin_mines")]
+            ])
+        )
+        await state.clear()
+        await callback.answer()
+        return
+    elif action == "custom":
+        await callback.message.answer(
+            "🔧 Введи число от 0.0 до 1.0 (например 0.85 = 85% побед):\n"
+            "0.0 — всегда проигрывает\n"
+            "1.0 — всегда выигрывает",
+            reply_markup=get_state_back_inline_keyboard()
+        )
+        await state.set_state("admin_mines_custom_value")
+        await callback.answer()
+        return
+    else:
+        await callback.answer("❌ Неизвестная команда", show_alert=True)
+        return
+    
+    await set_mines_override(target_user, win_chance, True)
+    
+    await callback.message.edit_text(
+        f"✅ *Подкрутка установлена!*\n\n"
+        f"👤 Игрок: {target_user}\n"
+        f"🎲 Режим: {mode_text}\n"
+        f"📊 Шанс победы: {win_chance*100:.0f}%",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 В админку Mines", callback_data="admin_mines")]
+        ])
+    )
+    await state.clear()
+    await callback.answer()
+
+@dp.message(StateFilter("admin_mines_custom_value"))
+async def admin_mines_custom_value(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        await state.clear()
+        return
+    
+    try:
+        win_chance = float(message.text.strip().replace(",", "."))
+        if win_chance < 0 or win_chance > 1:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Введи число от 0.0 до 1.0 (например 0.75)")
+        return
+    
+    data = await state.get_data()
+    target_user = data.get("target_user")
+    if not target_user:
+        await message.answer("❌ Ошибка: игрок не выбран")
+        await state.clear()
+        return
+    
+    await set_mines_override(target_user, win_chance, True)
+    
+    await message.answer(
+        f"✅ *Подкрутка установлена!*\n\n"
+        f"👤 Игрок: {target_user}\n"
+        f"🎲 Шанс победы: {win_chance*100:.0f}%",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 В админку Mines", callback_data="admin_mines")]
+        ])
+    )
+    await state.clear()
+
+@dp.callback_query(F.data == "admin_mines_active")
+async def admin_mines_active(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔", show_alert=True)
+        return
+    
+    if not active_mines_games:
+        await callback.message.edit_text(
+            "📭 *Нет активных игр*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_mines")]
+            ])
+        )
+        await callback.answer()
+        return
+    
+    text = "👥 *Активные игры в Mines:*\n\n"
+    for uid, game in active_mines_games.items():
+        user = await get_user(uid)
+        name = user['full_name'] if user else str(uid)
+        multiplier = get_mines_multiplier(game["mines_count"], len(game["opened"]))
+        win = int(game["bet"] * multiplier)
+        text += f"• {name}\n"
+        text += f"  💰 Ставка: {format_money(game['bet'])} | 💣 {game['mines_count']} мин\n"
+        text += f"  🔓 Открыто: {len(game['opened'])}/25 | x{multiplier:.2f} = {format_money(win)}\n\n"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_mines_active")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_mines")]
+    ])
+    
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+    await callback.answer()
 
 
 async def on_startup():  # startup
