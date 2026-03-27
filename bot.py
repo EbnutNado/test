@@ -7203,18 +7203,28 @@ async def disable_mines_override(user_id: int) -> None:
         await db.commit()
 
 # ==================== ГЕНЕРАЦИЯ ПОЛЯ С ПОДКРУТКОЙ ====================
-
 def generate_mines_field_with_override(mines_count: int, user_id: int) -> list:
     """Генерирует поле с учётом админ-подкрутки.
     При подкрутке (win_chance > 0.5) мины уходят на края.
     При открутке (win_chance < 0.5) мины концентрируются в центре.
     """
+    # Получаем настройки подкрутки через синхронный вызов
     import asyncio
+    import concurrent.futures
     
-    # Получаем настройки подкрутки
-    loop = asyncio.new_event_loop()
-    override = loop.run_until_complete(get_mines_override(user_id))
-    loop.close()
+    # Функция для синхронного получения override
+    def get_override_sync():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(get_mines_override(user_id))
+        finally:
+            loop.close()
+    
+    # Запускаем в отдельном потоке, чтобы не мешать основному event loop
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(get_override_sync)
+        override = future.result()
     
     all_cells = list(range(25))
     
