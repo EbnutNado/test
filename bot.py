@@ -7321,7 +7321,7 @@ async def mines_choose_count(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"💣 *МИНЫ — {mines_count} мин*\n\n"
         f"💰 Баланс: {format_money(user['balance'])}\n"
-        f"💸 Ставка: от {format_money(ECONOMY_SETTINGS['mines_min_bet'])} до {format_money(max_bet)}\n\n"
+        f"💸 Ставка: от {format_money(MINES_SETTINGS['mines_min_bet'])} до {format_money(max_bet)}\n\n"
         f"Введи сумму ставки числом:",
         parse_mode="Markdown"
     )
