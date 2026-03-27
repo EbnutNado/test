@@ -7669,8 +7669,11 @@ async def mines_cashout(callback: CallbackQuery):
     
     await update_balance(user_id, win, "mines_win", f"Выигрыш в Минах: {win}₽")
     
-    # Показываем всё поле с выигрышем
-    await show_full_field(callback.message, user_id, game, is_win=True, win_amount=win, cashout=True)
+    # Генерируем финальное поле для отображения
+    current_mines = generate_mines_field_with_override(game["mines_count"], game["opened"], user_id)
+    
+    # Показываем финальное поле
+    await show_final_board(callback.message, user_id, game, current_mines, is_win=True, win_amount=win)
     del active_mines_games[user_id]
     await callback.answer()
 
@@ -7681,19 +7684,19 @@ async def mines_exit(callback: CallbackQuery, state: FSMContext):
     game = active_mines_games.get(user_id)
     
     if game:
+        # Генерируем финальное поле для отображения
+        current_mines = generate_mines_field_with_override(game["mines_count"], game["opened"], user_id)
+        await show_final_board(callback.message, user_id, game, current_mines, is_win=False)
         await update_balance(user_id, game["bet"], "mines_refund", "Возврат ставки (выход из игры)")
         del active_mines_games[user_id]
+    else:
+        await callback.message.edit_text(
+            "❌ *Игра прервана*",
+            parse_mode="Markdown",
+            reply_markup=get_minigames_keyboard()
+        )
     
-    await callback.message.edit_text(
-        "❌ *Игра прервана*\n\nСтавка возвращена.",
-        parse_mode="Markdown",
-        reply_markup=get_minigames_keyboard()
-    )
     await state.clear()
-    await callback.answer()
-
-@dp.callback_query(F.data == "mines_noop")
-async def mines_noop(callback: CallbackQuery):
     await callback.answer()
 
 # ==================== АДМИН-ПАНЕЛЬ MINES ====================
