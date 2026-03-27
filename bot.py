@@ -7208,21 +7208,35 @@ def generate_mines_field_with_override(mines_count: int, opened_cells: list, use
     При win_chance > 0.5: мины НЕ попадают в открытые ячейки
     При win_chance < 0.5: мины попадают в открытые ячейки
     """
-    import asyncio
-    
-    loop = asyncio.new_event_loop()
-    override = loop.run_until_complete(get_mines_override(user_id))
-    loop.close()
+    import sqlite3
     
     all_cells = list(range(25))
     opened = opened_cells.copy()
     closed = [c for c in all_cells if c not in opened]
     
-    if not override["active"] or override["win_chance"] == 0.5:
+    # Синхронно получаем настройки подкрутки из БД
+    win_chance = None
+    active = False
+    
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT mines_override, mines_override_active FROM players WHERE user_id = ?",
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row and row[1]:
+            active = True
+            win_chance = row[0]
+    except Exception as e:
+        logger.error(f"Ошибка при получении подкрутки для {user_id}: {e}")
+    
+    if not active or win_chance == 0.5:
         # Без подкрутки или 50% — случайное распределение
         return random.sample(all_cells, mines_count)
-    
-    win_chance = override["win_chance"]
     
     if win_chance > 0.5:
         # ПОДКРУТКА: мины должны быть в неоткрытых ячейках
@@ -7235,13 +7249,15 @@ def generate_mines_field_with_override(mines_count: int, opened_cells: list, use
             mines.extend(random.sample(closed, min(mines_in_closed, len(closed))))
         if mines_in_opened > 0 and opened:
             available = [c for c in opened if c not in mines]
-            mines.extend(random.sample(available, min(mines_in_opened, len(available))))
+            if available:
+                mines.extend(random.sample(available, min(mines_in_opened, len(available))))
         
-        # Если не хватило — добираем
+        # Если не хватило — добираем из оставшихся
         if len(mines) < mines_count:
             remaining = [c for c in all_cells if c not in mines]
             needed = mines_count - len(mines)
-            mines.extend(random.sample(remaining, min(needed, len(remaining))))
+            if remaining:
+                mines.extend(random.sample(remaining, min(needed, len(remaining))))
         
         return mines
     
@@ -7256,15 +7272,16 @@ def generate_mines_field_with_override(mines_count: int, opened_cells: list, use
             mines.extend(random.sample(opened, min(mines_in_opened, len(opened))))
         if mines_in_closed > 0 and closed:
             available = [c for c in closed if c not in mines]
-            mines.extend(random.sample(available, min(mines_in_closed, len(available))))
+            if available:
+                mines.extend(random.sample(available, min(mines_in_closed, len(available))))
         
         if len(mines) < mines_count:
             remaining = [c for c in all_cells if c not in mines]
             needed = mines_count - len(mines)
-            mines.extend(random.sample(remaining, min(needed, len(remaining))))
+            if remaining:
+                mines.extend(random.sample(remaining, min(needed, len(remaining))))
         
         return mines
-
 # ==================== ИГРА МИНЫ ====================
 
 def generate_mines_field(mines_count: int, exclude_cell: int = None, user_id: int = None) -> list:
