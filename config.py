@@ -1,12 +1,12 @@
-token = ''
+token = '8611222074:AAHYK7C9Y25pxAoxkOC1jUb4Zo8spXoMrpU'
 api_cryptobot = ''
 
-channal_id = -1002103256870
+channal_id = -1003008379294
 ID_SEND_TRANSFER = -1002011813882
 URL_LOG_CHANNAL = -1002173546748
 
-ADMIN = [6038457276]
-ADMIN_USERNAME = '@MamaYaWorkerSuka'
+ADMIN = [5775839902]
+ADMIN_USERNAME = '@Ebnut_nado'
 URL_BOT = 'https://t.me/AloBiznes?DadaDengi'
 NICNAME = 'AloBiznes?DadaDengi'
 NAME_CASINO = 'CasinoDengi'
